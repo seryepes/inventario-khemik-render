@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Inventario Kemik</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-custom mb-4 shadow">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand fw-bold d-flex align-items-center" href="#">
+                <i class="fa-solid fa-boxes-stacked me-2 text-warning fs-4"></i>
+                <span>Inventario Kemik - Control & Gestión</span>
+            </a>
+            <div class="d-flex align-items-center text-light gap-2 flex-wrap">
+                <button class="btn btn-success btn-sm fw-semibold" id="btnExportarExcel">
+                    <i class="fa-solid fa-file-excel me-1"></i>Guardar Excel (.xlsx)
+                </button>
+                <button class="btn btn-outline-light btn-sm" id="btnExportarCSV">
+                    <i class="fa-solid fa-file-csv me-1"></i>Exportar CSV
+                </button>
+                <button class="btn btn-warning btn-sm fw-semibold" id="btnBackupJson">
+                    <i class="fa-solid fa-download me-1"></i>Backup JSON
+                </button>
+                <label class="btn btn-outline-warning btn-sm mb-0" for="backupFileInput">
+                    <i class="fa-solid fa-upload me-1"></i>Restaurar JSON
+                </label>
+                <input type="file" id="backupFileInput" accept=".json,application/json" class="d-none">
+                <button class="btn btn-danger btn-sm fw-semibold" id="btnBorrarTodo">
+                    <i class="fa-solid fa-trash-can me-1"></i>Borrar Todo
+                </button>
+                <span class="badge bg-secondary ms-2" id="totalCargadosBadge">
+                    <i class="fa-solid fa-spinner fa-spin me-1"></i>Cargando datos...
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4">
+
+        <div class="card border-0 shadow-sm p-3 mb-4 bg-white">
+            <div class="row align-items-center g-3">
+                <div class="col-md-6 col-lg-5">
+                    <label for="excelFileInput" class="form-label fw-bold text-secondary mb-1">
+                        <i class="fa-solid fa-file-import me-1 text-primary"></i>Cargar Inventario Excel
+                    </label>
+                    <input type="file" id="excelFileInput" class="form-control" accept=".xlsx, .xls">
+                </div>
+                <div class="col-md-6 col-lg-7 text-md-end">
+                        <small class="text-muted d-block mt-2">
+                        <i class="fa-solid fa-shield-halved me-1"></i>Sube tu archivo <b>.xlsx</b> para importar movimientos al backend local.
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card card-stat bg-primary text-white p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small text-uppercase fw-bold opacity-75">Total Ingresos Aluminio</div>
+                            <div class="fs-2 fw-bold" id="statAluminio">0 un.</div>
+                            <div class="small mt-2 opacity-90" id="statAluminioDetalle">125 kg: 0 un. · 200 kg: 0 un. · Otra: 0 un.</div>
+                        </div>
+                        <i class="fa-solid fa-cubes fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card card-stat bg-info text-white p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small text-uppercase fw-bold opacity-75">Total Ingresos Magnesio</div>
+                            <div class="fs-2 fw-bold" id="statMagnesio">0 un.</div>
+                            <div class="small mt-2 opacity-90" id="statMagnesioDetalle">125 kg: 0 un. · 200 kg: 0 un. · Otra: 0 un.</div>
+                        </div>
+                        <i class="fa-solid fa-box-open fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card card-stat bg-success text-white p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small text-uppercase fw-bold opacity-75">Posiciones Ocupadas</div>
+                            <div class="fs-2 fw-bold" id="statPosiciones">0</div>
+                        </div>
+                        <i class="fa-solid fa-warehouse fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card card-stat bg-dark text-white p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small text-uppercase fw-bold opacity-75">Productos actuales (según filtro)</div>
+                            <div class="fs-2 fw-bold" id="statTotalMov">0</div>
+                            <div class="small mt-2 opacity-90" id="statTotalMovDetalle">0 registros</div>
+                        </div>
+                        <i class="fa-solid fa-list-check fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <ul class="nav nav-tabs mb-3" id="inventoryTabs" role="tablist">
+            <li class="nav-item">
+                <button class="nav-link active fs-6" id="tab-movimientos-tab" data-bs-toggle="tab" data-bs-target="#tab-movimientos" type="button">
+                    <i class="fa-solid fa-arrow-transfer-exchange me-2"></i>Historial de Movimientos
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link fs-6" id="tab-stock-tab" data-bs-toggle="tab" data-bs-target="#tab-stock" type="button">
+                    <i class="fa-solid fa-boxes-packing me-2"></i>Stock Consolidado Actual
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link fs-6" id="tab-posiciones-tab" data-bs-toggle="tab" data-bs-target="#tab-posiciones" type="button">
+                    <i class="fa-solid fa-warehouse me-2"></i>Consultar Posiciones Disponibles
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="inventoryTabContent">
+            
+            <div class="tab-pane fade show active" id="tab-movimientos" role="tabpanel">
+                <div class="card border-0 shadow-sm p-3 mb-4">
+                    <div class="row g-3 align-items-center">
+                        <div class="col-lg-4 col-md-6">
+                            <div class="input-group">
+                                <span class="input-group-text bg-white"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
+                                <input type="text" id="searchInput" class="form-control" placeholder="Buscar por Lote, Posición, ID...">
+                            </div>
+                        </div>
+                        <div class="col-lg-2 col-md-3">
+                            <select id="filterProduct" class="form-select">
+                                <option value="">Todos los Productos</option>
+                                <option value="Aluminio">Aluminio</option>
+                                <option value="Magnesio">Magnesio</option>
+                                <option value="Otro">Otro</option>
+                            </select>
+                        </div>
+                        <div class="col-lg-2 col-md-3">
+                            <select id="filterPres" class="form-select">
+                                <option value="">Todas Presentaciones</option>
+                                <option value="125 kg">125 kg</option>
+                                <option value="200 kg">200 kg</option>
+                                <option value="Otra">Otra</option>
+                            </select>
+                        </div>
+                        <div class="col-lg-2 col-md-6">
+                            <select id="filterMvto" class="form-select">
+                                <option value="">Todos los Mvtos</option>
+                                <option value="Ingreso">Ingreso (+)</option>
+                                <option value="Salida">Salida (-)</option>
+                                <option value="Sin ubicar">Sin ubicar</option>
+                            </select>
+                        </div>
+                        <div class="col-lg-2 col-md-6 text-end">
+                            <button class="btn btn-success w-100 fw-bold shadow-sm" id="btnNuevoRegistro">
+                                <i class="fa-solid fa-plus me-1"></i>Nuevo Registro
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-card mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-bold m-0 text-secondary"><i class="fa-solid fa-table me-2"></i>Registros de Movimiento</h5>
+                        <span class="badge bg-primary fs-6" id="totalRecordsBadge">0 registros</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Fecha</th>
+                                    <th>Mvto</th>
+                                    <th>Posición</th>
+                                    <th>Producto</th>
+                                    <th>Presentación</th>
+                                    <th>Lote</th>
+                                    <th>Cantidad</th>
+                                    <th>Observaciones</th>
+                                    <th class="text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableBody"></tbody>
+                            <tfoot>
+                                <tr class="table-light">
+                                    <th colspan="7" class="text-end">Suma de cantidad (página actual):</th>
+                                    <th class="fw-bold text-primary" id="totalCantidadPagina">0</th>
+                                    <th colspan="2"></th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center mt-3">
+                        <div class="small text-muted" id="pageInfo">Página 1 de 1</div>
+                        <nav><ul class="pagination pagination-sm m-0" id="pagination"></ul></nav>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="tab-stock" role="tabpanel">
+                <div class="card border-0 shadow-sm p-3 mb-4">
+                    <div class="row g-3 align-items-center">
+                        <div class="col-md-4">
+                            <input type="text" id="stockSearchInput" class="form-control" placeholder="Filtrar Stock...">
+                        </div>
+                        <div class="col-md-3">
+                            <select id="stockFilterProduct" class="form-select">
+                                <option value="">Todos los Productos</option>
+                                <option value="Aluminio">Aluminio</option>
+                                <option value="Magnesio">Magnesio</option>
+                                <option value="Otro">Otro</option>
+                            </select>
+                        </div>
+                        <div class="col-md-5 text-end">
+                            <span class="text-muted small"><i class="fa-solid fa-info-circle me-1"></i>Existencias netas calculadas.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="card card-stat bg-primary text-white p-3">
+                            <div class="small text-uppercase fw-bold opacity-75">Stock Total Aluminio</div>
+                            <div class="fs-3 fw-bold" id="stockTotalAluminio">0 un.</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card card-stat bg-info text-white p-3">
+                            <div class="small text-uppercase fw-bold opacity-75">Stock Total Magnesio</div>
+                            <div class="fs-3 fw-bold" id="stockTotalMagnesio">0 un.</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card card-stat bg-dark text-white p-3">
+                            <div class="small text-uppercase fw-bold opacity-75">Stock Total General</div>
+                            <div class="fs-3 fw-bold" id="stockTotalGeneral">0 un.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-card mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-bold m-0 text-secondary"><i class="fa-solid fa-boxes-stacked me-2"></i>Resumen Stock Disponible</h5>
+                        <span class="badge bg-success fs-6" id="stockFiltradoBadge">0 un. en esta vista</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Posición</th>
+                                    <th>Producto</th>
+                                    <th>Presentación</th>
+                                    <th>Lote</th>
+                                    <th class="text-end">Stock Actual</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stockTableBody"></tbody>
+                            <tfoot>
+                                <tr class="table-light">
+                                    <th colspan="4" class="text-end">Total:</th>
+                                    <th class="text-end text-success" id="stockTableFooterTotal">0</th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="tab-posiciones" role="tabpanel">
+                <div class="card border-0 shadow-sm p-3 mb-4">
+                    <div class="row g-3 align-items-center">
+                        <div class="col-md-6">
+                            <h5 class="fw-bold text-secondary m-0"><i class="fa-solid fa-warehouse me-2"></i>Mapa de Posiciones</h5>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <span class="badge me-2" style="background-color:#0d6efd;">Aluminio</span>
+                            <span class="badge me-2" style="background-color:#fd7e14;">Magnesio</span>
+                            <span class="badge me-2" style="background-color:#6f42c1;">Mixto</span>
+                            <span class="badge bg-light text-dark border">Disponible</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-card mb-4">
+                    <div id="mapaPosiciones"></div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="card border-0 shadow-sm p-3 bg-light">
+                            <h6 class="fw-bold text-secondary mb-2"><i class="fa-solid fa-chart-pie me-2"></i>Resumen</h6>
+                            <div class="small">
+                                <div class="mb-2"><span class="badge bg-success">Ocupadas:</span> <strong id="posOcupadas">0</strong></div>
+                                <div><span class="badge bg-light text-dark border">Disponibles:</span> <strong id="posDisponibles">0</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- Modales -->
+    <div class="modal fade" id="modalRegistro" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold" id="modalRegistroLabel">Movimiento</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="inventoryForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="editId">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="formFecha" class="form-label fw-semibold">Fecha</label>
+                                <input type="date" class="form-control" id="formFecha" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="formMvto" class="form-label fw-semibold">Tipo Movimiento</label>
+                                <select class="form-select" id="formMvto" required>
+                                    <option value="Ingreso">Ingreso (+)</option>
+                                    <option value="Salida">Salida (-)</option>
+                                    <option value="Traslado">Traslado</option>
+                                    <option value="Sin ubicar">Sin ubicar</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="formPosicion" class="form-label fw-semibold">Posición</label>
+                                <input type="text" class="form-control" id="formPosicion" required>
+                            </div>
+                            <div class="col-md-6 d-none" id="destinoGroup">
+                                <label for="formPosicionDestino" class="form-label fw-semibold">Posición destino</label>
+                                <input type="text" class="form-control" id="formPosicionDestino">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="formLote" class="form-label fw-semibold">Lote</label>
+                                <input type="text" class="form-control" id="formLote" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="formProducto" class="form-label fw-semibold">Producto</label>
+                                <select class="form-select" id="formProducto" required>
+                                    <option value="Aluminio">Aluminio</option>
+                                    <option value="Magnesio">Magnesio</option>
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="formPresentacion" class="form-label fw-semibold">Presentación</label>
+                                <select class="form-select" id="formPresentacion" required>
+                                    <option value="125 kg">125 kg</option>
+                                    <option value="200 kg">200 kg</option>
+                                    <option value="Otra">Otra</option>
+                                </select>
+                            </div>
+                            <div class="col-md-12">
+                                <label for="formCantidad" class="form-label fw-semibold">Cantidad</label>
+                                <input type="number" class="form-control" id="formCantidad" min="1" required>
+                            </div>
+                            <div class="col-md-12">
+                                <label for="formObservaciones" class="form-label fw-semibold">Observaciones</label>
+                                <input type="text" class="form-control" id="formObservaciones">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary fw-bold">Guardar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalProductosPosicion" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title fw-bold" id="modalPosicionLabel">Detalle Posición</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="contenidoProductosPosicion"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="../controlador/controler.js"></script>
+</body>
+</html>

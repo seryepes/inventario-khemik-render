@@ -1,0 +1,47 @@
+:root {
+    --bs-body-bg: #f4f6f9;
+    --primary-dark: #1e293b;
+}
+
+body {
+    background-color: var(--bs-body-bg);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.navbar-custom {
+    background-color: var(--primary-dark);
+}
+
+.card-stat {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card-stat:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+}
+
+.table-card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    padding: 20px;
+}
+
+.badge-pos {
+    font-size: 0.85em;
+    font-weight: 600;
+    padding: 5px 10px;
+}
+
+.pagination .page-link {
+    cursor: pointer;
+}
+
+.nav-tabs .nav-link.active {
+    font-weight: bold;
+    border-bottom: 3px solid #0d6efd;
+}
