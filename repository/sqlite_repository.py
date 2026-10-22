@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import secrets
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator
@@ -59,6 +60,60 @@ class SQLiteInventarioRepository:
                     es_traslado INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK (role IN ('admin', 'user'))
+                )
+            """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
+
+    def get_or_create_secret_key(self) -> str:
+        with self._connect() as db:
+            row = db.execute("SELECT value FROM app_settings WHERE key='secret_key'").fetchone()
+            if row:
+                return str(row["value"])
+            secret_key = secrets.token_hex(32)
+            db.execute("INSERT INTO app_settings (key, value) VALUES ('secret_key', ?)", (secret_key,))
+        return secret_key
+
+    def listar_usuarios(self) -> list[dict[str, str]]:
+        with self._connect() as db:
+            rows = db.execute("SELECT username, role FROM usuarios ORDER BY username COLLATE NOCASE").fetchall()
+        return [{"username": row["username"], "role": row["role"]} for row in rows]
+
+    def obtener_usuario(self, username: str) -> dict[str, str] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT username, password_hash, role FROM usuarios WHERE username=?",
+                (username,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def crear_administrador_inicial(self, username: str, password_hash: str) -> bool:
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM usuarios LIMIT 1").fetchone():
+                return False
+            db.execute(
+                "INSERT INTO usuarios (username, password_hash, role) VALUES (?, ?, 'admin')",
+                (username, password_hash),
+            )
+        return True
+
+    def crear_usuario(self, username: str, password_hash: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO usuarios (username, password_hash, role) VALUES (?, ?, 'user')",
+                (username, password_hash),
+            )
 
     @staticmethod
     def _from_row(row: sqlite3.Row) -> Movimiento:

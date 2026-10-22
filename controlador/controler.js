@@ -13,10 +13,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     modalProductos = new bootstrap.Modal(document.getElementById('modalProductosPosicion'));
 
     listeners();
-    await cargarAplicacion();
+    await iniciarAutenticacion();
 });
 
 function listeners() {
+    document.getElementById('authForm').addEventListener('submit', autenticar);
+    document.getElementById('btnLogout').addEventListener('click', cerrarSesion);
+    document.getElementById('createUserForm').addEventListener('submit', crearUsuario);
+    document.getElementById('modalUsuarios').addEventListener('show.bs.modal', cargarUsuarios);
+
     ['searchInput', 'filterProduct', 'filterPres', 'filterMvto'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => { currentPage = 1; renderTabla(); });
         document.getElementById(id).addEventListener('input', () => { currentPage = 1; renderTabla(); });
@@ -36,6 +41,119 @@ function listeners() {
 
     document.getElementById('tab-stock-tab').addEventListener('click', () => renderStockConsolidado());
     document.getElementById('tab-posiciones-tab').addEventListener('click', () => renderMapaPosiciones());
+}
+
+async function iniciarAutenticacion() {
+    try {
+        const status = await service.authStatus();
+        if (status.user) {
+            mostrarAplicacion(status.user);
+            await cargarAplicacion();
+            return;
+        }
+        configurarFormularioAcceso(status.setupRequired);
+    } catch (error) {
+        mostrarErrorAcceso(`No se pudo conectar con Khemik: ${error.message}`);
+    }
+}
+
+function configurarFormularioAcceso(configuracionInicial) {
+    const password = document.getElementById('authPassword');
+    document.getElementById('authTitle').textContent = configuracionInicial
+        ? 'Crear administrador'
+        : 'Iniciar sesión';
+    document.getElementById('authSubtitle').textContent = configuracionInicial
+        ? 'Configura la primera cuenta administradora'
+        : 'Ingresa para continuar';
+    document.getElementById('authSubmit').textContent = configuracionInicial
+        ? 'Crear administrador'
+        : 'Ingresar';
+    document.getElementById('passwordHelp').classList.toggle('d-none', !configuracionInicial);
+    password.autocomplete = configuracionInicial ? 'new-password' : 'current-password';
+    document.getElementById('authForm').dataset.setup = String(configuracionInicial);
+    document.getElementById('authScreen').classList.remove('d-none');
+}
+
+function mostrarAplicacion(user) {
+    document.getElementById('authScreen').classList.add('d-none');
+    document.getElementById('currentUser').textContent = user.username;
+    document.getElementById('btnUsuarios').classList.toggle('d-none', user.role !== 'admin');
+}
+
+function mostrarErrorAcceso(message) {
+    configurarFormularioAcceso(false);
+    const error = document.getElementById('authError');
+    error.textContent = message;
+    error.classList.remove('d-none');
+}
+
+async function autenticar(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = document.getElementById('authSubmit');
+    const error = document.getElementById('authError');
+    const username = document.getElementById('authUsername').value;
+    const password = document.getElementById('authPassword').value;
+    const setup = form.dataset.setup === 'true';
+    error.classList.add('d-none');
+    button.disabled = true;
+    try {
+        await service.iniciarSesion(username, password, setup);
+        window.location.reload();
+    } catch (err) {
+        error.textContent = err.message;
+        error.classList.remove('d-none');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function cerrarSesion() {
+    try {
+        await service.cerrarSesion();
+        window.location.reload();
+    } catch (error) {
+        alert(`No se pudo cerrar la sesión: ${error.message}`);
+    }
+}
+
+async function cargarUsuarios() {
+    const list = document.getElementById('userList');
+    list.replaceChildren();
+    try {
+        const users = await service.listarUsuarios();
+        users.forEach(user => {
+            const item = document.createElement('li');
+            item.className = 'list-group-item d-flex justify-content-between';
+            const name = document.createElement('span');
+            name.textContent = user.username;
+            const role = document.createElement('span');
+            role.className = 'badge bg-secondary';
+            role.textContent = user.role === 'admin' ? 'Administrador' : 'Usuario';
+            item.append(name, role);
+            list.appendChild(item);
+        });
+    } catch (error) {
+        document.getElementById('userError').textContent = error.message;
+        document.getElementById('userError').classList.remove('d-none');
+    }
+}
+
+async function crearUsuario(event) {
+    event.preventDefault();
+    const error = document.getElementById('userError');
+    error.classList.add('d-none');
+    try {
+        await service.crearUsuario(
+            document.getElementById('newUsername').value,
+            document.getElementById('newPassword').value
+        );
+        event.currentTarget.reset();
+        await cargarUsuarios();
+    } catch (err) {
+        error.textContent = err.message;
+        error.classList.remove('d-none');
+    }
 }
 
 async function cargarAplicacion() {

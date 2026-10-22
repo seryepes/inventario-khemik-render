@@ -17,6 +17,32 @@ export class InventarioService {
         this.movimientos = [];
     }
 
+    async authStatus() {
+        return request('/auth/status');
+    }
+
+    async iniciarSesion(username, password, setup = false) {
+        return request(setup ? '/auth/setup' : '/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
+    }
+
+    async cerrarSesion() {
+        return request('/auth/logout', { method: 'POST' });
+    }
+
+    async listarUsuarios() {
+        return request('/auth/users');
+    }
+
+    async crearUsuario(username, password) {
+        return request('/auth/users', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
+    }
+
     async cargarDatos() {
         const data = await request('/movimientos');
         this.movimientos = data.map(item => new Movimiento(item));
