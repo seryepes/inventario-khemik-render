@@ -1,3 +1,4 @@
 @echo off
-call .venv\Scripts\activate
-python -m backend.app
+cd /d "%~dp0"
+call .venv\Scripts\activate.bat
+python app.py

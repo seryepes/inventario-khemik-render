@@ -16,7 +16,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m unittest backend.test_auth backend.test_service
-python -m backend.app
+python app.py
 ```
 
 Abre `http://127.0.0.1:5000` en el navegador. La base de datos se crea automaticamente dentro de `repository`. Si existe la base anterior `inventario.db` en la raiz, se mueve a la nueva ubicacion en el primer inicio, conservando sus registros.

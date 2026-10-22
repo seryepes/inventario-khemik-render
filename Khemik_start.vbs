@@ -1,3 +1,4 @@
 Set WshShell = CreateObject("WScript.Shell")
-projectPath = "C:\Users\USUARIO\Desktop\inventario khemik pyton"
-WshShell.Run "cmd /c ""cd /d """ & projectPath & """ && call .venv\Scripts\activate && python -m backend.app""", 0, False
+Set FileSystem = CreateObject("Scripting.FileSystemObject")
+projectPath = FileSystem.GetParentFolderName(WScript.ScriptFullName)
+WshShell.Run "cmd /c ""cd /d """ & projectPath & """ && call .venv\Scripts\activate.bat && python app.py""", 0, False
