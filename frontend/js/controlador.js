@@ -1,7 +1,13 @@
-import { InventarioService } from '../servicios/service.js?v=2';
+import { InventarioService } from './servicio.js?v=3';
 
-// Instanciación directa del servicio local (sin credenciales ni red)
 const service = new InventarioService();
+
+const ROLES = { admin: 'Administrador', operador: 'Operador', consulta: 'Consulta' };
+
+// Todo texto que venga de la base se escapa antes de insertarlo como HTML (evita XSS).
+function esc(valor) {
+    return String(valor ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 let currentPage = 1;
 const pageSize = 15;
@@ -20,6 +26,9 @@ function listeners() {
     document.getElementById('authForm').addEventListener('submit', autenticar);
     document.getElementById('btnLogout').addEventListener('click', cerrarSesion);
     document.getElementById('createUserForm').addEventListener('submit', crearUsuario);
+    document.getElementById('createProductForm').addEventListener('submit', crearProducto);
+    document.getElementById('createPresentationForm').addEventListener('submit', crearPresentacion);
+    document.getElementById('userList').addEventListener('click', accionUsuario);
     document.getElementById('modalUsuarios').addEventListener('show.bs.modal', cargarUsuarios);
 
     ['searchInput', 'filterProduct', 'filterPres', 'filterMvto'].forEach(id => {
@@ -76,8 +85,10 @@ function configurarFormularioAcceso(configuracionInicial) {
 
 function mostrarAplicacion(user) {
     document.getElementById('authScreen').classList.add('d-none');
-    document.getElementById('currentUser').textContent = user.username;
+    document.getElementById('currentUser').textContent = `${user.username} · ${ROLES[user.role] || user.role}`;
     document.getElementById('btnUsuarios').classList.toggle('d-none', user.role !== 'admin');
+    // style.css oculta los controles que el rol no puede usar; el backend igual valida cada permiso.
+    document.body.dataset.rol = user.role;
 }
 
 function mostrarErrorAcceso(message) {
@@ -124,13 +135,19 @@ async function cargarUsuarios() {
         const users = await service.listarUsuarios();
         users.forEach(user => {
             const item = document.createElement('li');
-            item.className = 'list-group-item d-flex justify-content-between';
-            const name = document.createElement('span');
-            name.textContent = user.username;
-            const role = document.createElement('span');
-            role.className = 'badge bg-secondary';
-            role.textContent = user.role === 'admin' ? 'Administrador' : 'Usuario';
-            item.append(name, role);
+            item.className = 'list-group-item d-flex justify-content-between align-items-center gap-2';
+            item.innerHTML = `
+                <span class="${user.activo ? '' : 'text-decoration-line-through text-muted'}">${esc(user.username)}</span>
+                <span class="d-flex gap-1 align-items-center">
+                    <span class="badge bg-secondary">${esc(ROLES[user.role] || user.role)}</span>
+                    <button class="btn btn-sm btn-outline-${user.activo ? 'danger' : 'success'}" data-accion="activo"
+                        data-username="${esc(user.username)}" data-valor="${user.activo ? '0' : '1'}">
+                        ${user.activo ? 'Desactivar' : 'Activar'}
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" data-accion="password" data-username="${esc(user.username)}">
+                        Clave
+                    </button>
+                </span>`;
             list.appendChild(item);
         });
     } catch (error) {
@@ -146,9 +163,10 @@ async function crearUsuario(event) {
     try {
         await service.crearUsuario(
             document.getElementById('newUsername').value,
-            document.getElementById('newPassword').value
+            document.getElementById('newPassword').value,
+            document.getElementById('newRole').value
         );
-        event.currentTarget.reset();
+        event.target.reset();
         await cargarUsuarios();
     } catch (err) {
         error.textContent = err.message;
@@ -156,9 +174,78 @@ async function crearUsuario(event) {
     }
 }
 
+async function accionUsuario(event) {
+    const boton = event.target.closest('button[data-accion]');
+    if (!boton) return;
+    const { accion, username, valor } = boton.dataset;
+    try {
+        if (accion === 'activo') {
+            await service.actualizarUsuario(username, { activo: valor === '1' });
+        } else {
+            const password = prompt(`Nueva contraseña para ${username} (mínimo 8 caracteres):`);
+            if (!password) return;
+            await service.actualizarUsuario(username, { password });
+            alert('Contraseña actualizada. Las sesiones abiertas de ese usuario se cerraron.');
+        }
+        await cargarUsuarios();
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function crearProducto(event) {
+    event.preventDefault();
+    try {
+        await service.crearProducto(document.getElementById('newProductName').value);
+        event.target.reset();
+        poblarCatalogos();
+        alert('Producto agregado al catálogo.');
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function crearPresentacion(event) {
+    event.preventDefault();
+    try {
+        await service.crearPresentacion(
+            document.getElementById('newPresentationName').value,
+            document.getElementById('newPresentationCapacity').value
+        );
+        event.target.reset();
+        poblarCatalogos();
+        alert('Presentación agregada al catálogo.');
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+function llenarSelect(id, nombres, opcionVacia = null) {
+    const select = document.getElementById(id);
+    const actual = select.value;
+    select.replaceChildren();
+    if (opcionVacia !== null) select.add(new Option(opcionVacia, ''));
+    nombres.forEach(nombre => select.add(new Option(nombre, nombre)));
+    if ([...select.options].some(o => o.value === actual)) select.value = actual;
+}
+
+function poblarCatalogos() {
+    const { productos, presentaciones, ubicaciones } = service.catalogos;
+    const productosActivos = productos.filter(p => p.activo).map(p => p.nombre);
+    const presentacionesActivas = presentaciones.filter(p => p.activo).map(p => p.nombre);
+    llenarSelect('formProducto', productosActivos);
+    llenarSelect('formPresentacion', presentacionesActivas);
+    llenarSelect('filterProduct', productos.map(p => p.nombre), 'Todos los Productos');
+    llenarSelect('stockFilterProduct', productos.map(p => p.nombre), 'Todos los Productos');
+    llenarSelect('filterPres', presentaciones.map(p => p.nombre), 'Todas Presentaciones');
+    const lista = document.getElementById('listaPosiciones');
+    lista.replaceChildren(...['SIN UBICAR', ...ubicaciones].map(codigo => new Option(codigo)));
+}
+
 async function cargarAplicacion() {
     try {
-        await service.cargarDatos();
+        await Promise.all([service.cargarDatos(), service.cargarCatalogos()]);
+        poblarCatalogos();
         actualizarEstadoGeneral();
     } catch (e) {
         alert("Error cargando inventario: " + e.message);
@@ -200,15 +287,15 @@ function renderTabla() {
             
             tr.innerHTML = `
                 <td class="fw-bold text-muted">#${item.id}</td>
-                <td class="small">${item.FechaFormateada}</td>
-                <td><span class="badge ${badgeClass} badge-pos">${item.mvto}</span></td>
-                <td><span class="badge bg-light text-dark border fw-bold">${item.posicion}</span></td>
-                <td class="fw-semibold">${item.producto}</td>
-                <td><span class="badge bg-light text-muted border">${item.presentacion}</span></td>
-                <td><code>${item.lote}</code></td>
+                <td class="small">${esc(item.FechaFormateada)}</td>
+                <td><span class="badge ${badgeClass} badge-pos">${esc(item.mvto)}</span></td>
+                <td><span class="badge bg-light text-dark border fw-bold">${esc(item.posicion)}</span></td>
+                <td class="fw-semibold">${esc(item.producto)}</td>
+                <td><span class="badge bg-light text-muted border">${esc(item.presentacion)}</span></td>
+                <td><code>${esc(item.lote)}</code></td>
                 <td class="fw-bold">${item.cantidad}</td>
-                <td class="small text-muted">${item.observaciones || '-'}</td>
-                <td class="text-center">
+                <td class="small text-muted" title="${esc(item.creadoPor ? `Registrado por ${item.creadoPor}` : '')}">${esc(item.observaciones || '-')}</td>
+                <td class="text-center requiere-escritura">
                     <button class="btn btn-sm btn-outline-primary me-1 btn-edit" data-id="${item.id}"><i class="fa-solid fa-pen"></i></button>
                     <button class="btn btn-sm btn-outline-danger btn-delete" data-id="${item.id}"><i class="fa-solid fa-trash"></i></button>
                 </td>
@@ -315,10 +402,10 @@ function renderStockConsolidado() {
         totalFiltrado += s.cantidad;
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td><span class="badge bg-secondary">${s.posicion}</span></td>
-            <td class="fw-semibold">${s.producto}</td>
-            <td><span class="badge bg-light text-dark border">${s.presentacion}</span></td>
-            <td><code>${s.lote}</code></td>
+            <td><span class="badge bg-secondary">${esc(s.posicion)}</span></td>
+            <td class="fw-semibold">${esc(s.producto)}</td>
+            <td><span class="badge bg-light text-dark border">${esc(s.presentacion)}</span></td>
+            <td><code>${esc(s.lote)}</code></td>
             <td class="text-end fw-bold text-success fs-6">${s.cantidad}</td>
         `;
         tbody.appendChild(tr);
@@ -379,14 +466,14 @@ function renderMapaPosiciones() {
 
 function mostrarProductosPosicion(posicion) {
     const stock = service.obtenerStockConsolidado().filter(s => s.posicion === posicion);
-    document.getElementById('modalPosicionLabel').innerHTML = `<i class="fa-solid fa-box me-2"></i>Productos en Posición ${posicion}`;
+    document.getElementById('modalPosicionLabel').innerHTML = `<i class="fa-solid fa-box me-2"></i>Productos en Posición ${esc(posicion)}`;
 
     let html = '<div class="table-responsive"><table class="table table-hover align-middle"><thead class="table-light"><tr><th>Producto</th><th>Presentación</th><th>Lote</th><th class="text-end">Cantidad</th></tr></thead><tbody>';
     let total = 0;
 
     stock.forEach(p => {
         total += p.cantidad;
-        html += `<tr><td>${p.producto}</td><td>${p.presentacion}</td><td><code>${p.lote}</code></td><td class="text-end fw-bold text-success">${p.cantidad} un.</td></tr>`;
+        html += `<tr><td>${esc(p.producto)}</td><td>${esc(p.presentacion)}</td><td><code>${esc(p.lote)}</code></td><td class="text-end fw-bold text-success">${p.cantidad} un.</td></tr>`;
     });
 
     html += `</tbody></table></div><div class="alert alert-info mt-3 mb-0"><strong>Total:</strong> ${total} unidades</div>`;
@@ -534,14 +621,19 @@ async function leerExcel(e) {
 
         try {
             const resultado = await service.importarDesdeExcel(paraInsertar);
-            const detalleRechazados = resultado.rechazados ? ` Rechazados: ${resultado.rechazados}.` : '';
-            alert(`¡Importados ${resultado.importados} registros exitosamente!${detalleRechazados}`);
+            alert(`¡Importados ${resultado.importados} registros exitosamente!${detalleErrores(resultado)}`);
             actualizarEstadoGeneral();
         } catch (err) {
             alert("Error al importar: " + err.message);
         }
     };
     reader.readAsArrayBuffer(file);
+}
+
+function detalleErrores(resultado) {
+    if (!resultado.rechazados) return '';
+    const lista = (resultado.errores || []).slice(0, 10).join('\n');
+    return `\n\nRechazados: ${resultado.rechazados}\n${lista}`;
 }
 
 function exportarExcel() {
@@ -622,8 +714,8 @@ async function importarBackupJSON(e) {
             return;
         }
 
-        await service.restaurarDesdeJSON(registros);
-        alert(`Backup restaurado correctamente: ${registros.length} registros importados.`);
+        const resultado = await service.restaurarDesdeJSON(registros);
+        alert(`Backup restaurado: ${resultado.importados} registros.${detalleErrores(resultado)}`);
         actualizarEstadoGeneral();
     } catch (err) {
         alert('Error al importar backup JSON: ' + err.message);
