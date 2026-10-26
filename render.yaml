@@ -1,0 +1,20 @@
+# Blueprint de Render: en el dashboard usa New > Blueprint y selecciona este repositorio.
+services:
+  - type: web
+    name: khemik-inventario
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # --preload crea las tablas una sola vez antes de levantar los workers.
+    startCommand: gunicorn --preload --workers 2 --threads 4 --timeout 60 --bind 0.0.0.0:$PORT app:app
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: KHEMIK_ENV
+        value: production
+      - key: KHEMIK_SECRET_KEY
+        generateValue: true
+      # Cadena de conexión de Neon; Render la pide al crear el servicio.
+      - key: DATABASE_URL
+        sync: false

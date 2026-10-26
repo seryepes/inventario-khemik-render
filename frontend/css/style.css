@@ -67,3 +67,8 @@ body {
     font-weight: bold;
     border-bottom: 3px solid #0d6efd;
 }
+/* Controles según el rol (el backend también valida cada permiso). */
+body:not([data-rol="admin"]) .solo-admin,
+body[data-rol="consulta"] .requiere-escritura {
+    display: none !important;
+}

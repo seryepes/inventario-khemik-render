@@ -6,9 +6,9 @@
     <title>Khemik | Control de Inventario</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-    
-    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="css/style.css?v=3">
+    <!-- SheetJS con versión fija desde su CDN oficial (la de npm está desactualizada). -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
     <section class="auth-screen" id="authScreen" aria-labelledby="authTitle">
@@ -43,7 +43,7 @@
             </a>
             <div class="d-flex align-items-center text-light gap-2 flex-wrap">
                 <button class="btn btn-outline-info btn-sm d-none" id="btnUsuarios" data-bs-toggle="modal" data-bs-target="#modalUsuarios">
-                    <i class="fa-solid fa-users me-1"></i>Usuarios
+                    <i class="fa-solid fa-users-gear me-1"></i>Administración
                 </button>
                 <span class="small" id="currentUser"></span>
                 <button class="btn btn-outline-light btn-sm" id="btnLogout">
@@ -58,11 +58,11 @@
                 <button class="btn btn-warning btn-sm fw-semibold" id="btnBackupJson">
                     <i class="fa-solid fa-download me-1"></i>Backup JSON
                 </button>
-                <label class="btn btn-outline-warning btn-sm mb-0" for="backupFileInput">
+                <label class="btn btn-outline-warning btn-sm mb-0 solo-admin" for="backupFileInput">
                     <i class="fa-solid fa-upload me-1"></i>Restaurar JSON
                 </label>
                 <input type="file" id="backupFileInput" accept=".json,application/json" class="d-none">
-                <button class="btn btn-danger btn-sm fw-semibold" id="btnBorrarTodo">
+                <button class="btn btn-danger btn-sm fw-semibold solo-admin" id="btnBorrarTodo">
                     <i class="fa-solid fa-trash-can me-1"></i>Borrar Todo
                 </button>
                 <span class="badge bg-secondary ms-2" id="totalCargadosBadge">
@@ -74,7 +74,7 @@
 
     <div class="container-fluid px-4">
 
-        <div class="card border-0 shadow-sm p-3 mb-4 bg-white">
+        <div class="card border-0 shadow-sm p-3 mb-4 bg-white solo-admin">
             <div class="row align-items-center g-3">
                 <div class="col-md-6 col-lg-5">
                     <label for="excelFileInput" class="form-label fw-bold text-secondary mb-1">
@@ -84,7 +84,7 @@
                 </div>
                 <div class="col-md-6 col-lg-7 text-md-end">
                         <small class="text-muted d-block mt-2">
-                        <i class="fa-solid fa-shield-halved me-1"></i>Sube tu archivo <b>.xlsx</b> para importar movimientos al backend local.
+                        <i class="fa-solid fa-shield-halved me-1"></i>Sube tu archivo <b>.xlsx</b> para importar movimientos. Cada fila se valida y las inválidas se reportan.
                     </small>
                 </div>
             </div>
@@ -193,7 +193,7 @@
                                 <option value="Sin ubicar">Sin ubicar</option>
                             </select>
                         </div>
-                        <div class="col-lg-2 col-md-6 text-end">
+                        <div class="col-lg-2 col-md-6 text-end requiere-escritura">
                             <button class="btn btn-success w-100 fw-bold shadow-sm" id="btnNuevoRegistro">
                                 <i class="fa-solid fa-plus me-1"></i>Nuevo Registro
                             </button>
@@ -219,7 +219,7 @@
                                     <th>Lote</th>
                                     <th>Cantidad</th>
                                     <th>Observaciones</th>
-                                    <th class="text-center">Acciones</th>
+                                    <th class="text-center requiere-escritura">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody id="tableBody"></tbody>
@@ -372,31 +372,24 @@
                             </div>
                             <div class="col-md-6">
                                 <label for="formPosicion" class="form-label fw-semibold">Posición</label>
-                                <input type="text" class="form-control" id="formPosicion" required>
+                                <input type="text" class="form-control" id="formPosicion" list="listaPosiciones" placeholder="Ej: 12C" autocomplete="off" required>
                             </div>
                             <div class="col-md-6 d-none" id="destinoGroup">
                                 <label for="formPosicionDestino" class="form-label fw-semibold">Posición destino</label>
-                                <input type="text" class="form-control" id="formPosicionDestino">
+                                <input type="text" class="form-control" id="formPosicionDestino" list="listaPosiciones" placeholder="Ej: 3A" autocomplete="off">
+                                <datalist id="listaPosiciones"></datalist>
                             </div>
                             <div class="col-md-6">
                                 <label for="formLote" class="form-label fw-semibold">Lote</label>
-                                <input type="text" class="form-control" id="formLote" required>
+                                <input type="text" class="form-control" id="formLote" maxlength="60" required>
                             </div>
                             <div class="col-md-6">
                                 <label for="formProducto" class="form-label fw-semibold">Producto</label>
-                                <select class="form-select" id="formProducto" required>
-                                    <option value="Aluminio">Aluminio</option>
-                                    <option value="Magnesio">Magnesio</option>
-                                    <option value="Otro">Otro</option>
-                                </select>
+                                <select class="form-select" id="formProducto" required></select>
                             </div>
                             <div class="col-md-6">
                                 <label for="formPresentacion" class="form-label fw-semibold">Presentación</label>
-                                <select class="form-select" id="formPresentacion" required>
-                                    <option value="125 kg">125 kg</option>
-                                    <option value="200 kg">200 kg</option>
-                                    <option value="Otra">Otra</option>
-                                </select>
+                                <select class="form-select" id="formPresentacion" required></select>
                             </div>
                             <div class="col-md-12">
                                 <label for="formCantidad" class="form-label fw-semibold">Cantidad</label>
@@ -404,7 +397,7 @@
                             </div>
                             <div class="col-md-12">
                                 <label for="formObservaciones" class="form-label fw-semibold">Observaciones</label>
-                                <input type="text" class="form-control" id="formObservaciones">
+                                <input type="text" class="form-control" id="formObservaciones" maxlength="500">
                             </div>
                         </div>
                     </div>
@@ -435,7 +428,7 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header bg-dark text-white">
-                    <h5 class="modal-title fw-bold" id="modalUsuariosLabel">Administrar usuarios</h5>
+                    <h5 class="modal-title fw-bold" id="modalUsuariosLabel">Administración</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -444,19 +437,37 @@
                         <label class="form-label" for="newUsername">Usuario</label>
                         <input class="form-control mb-2" id="newUsername" required minlength="3" maxlength="40" autocomplete="off">
                         <label class="form-label" for="newPassword">Contraseña</label>
-                        <input class="form-control mb-2" id="newPassword" type="password" required minlength="8" autocomplete="new-password">
+                        <input class="form-control mb-2" id="newPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password">
+                        <label class="form-label" for="newRole">Rol</label>
+                        <select class="form-select mb-2" id="newRole">
+                            <option value="operador">Operador: registra movimientos y traslados</option>
+                            <option value="consulta">Consulta: solo puede ver</option>
+                            <option value="admin">Administrador: todo, incluidos usuarios y catálogos</option>
+                        </select>
                         <div class="form-text mb-3">Mínimo 8 caracteres. El usuario podrá iniciar sesión con estos datos.</div>
                         <div class="alert alert-danger d-none" id="userError" role="alert"></div>
                         <button class="btn btn-primary w-100" type="submit">Crear usuario</button>
                     </form>
                     <h6 class="fw-bold">Cuentas registradas</h6>
-                    <ul class="list-group" id="userList"></ul>
+                    <ul class="list-group mb-4" id="userList"></ul>
+
+                    <h6 class="fw-bold">Catálogos</h6>
+                    <form id="createProductForm" class="input-group input-group-sm mb-2">
+                        <input class="form-control" id="newProductName" placeholder="Nuevo producto" required maxlength="60">
+                        <button class="btn btn-outline-primary" type="submit">Agregar producto</button>
+                    </form>
+                    <form id="createPresentationForm" class="input-group input-group-sm">
+                        <input class="form-control" id="newPresentationName" placeholder="Nueva presentación (ej: 50 kg)" required maxlength="30">
+                        <input class="form-control" id="newPresentationCapacity" type="number" min="1" placeholder="Capacidad por posición">
+                        <button class="btn btn-outline-primary" type="submit">Agregar</button>
+                    </form>
+                    <div class="form-text">Deja la capacidad vacía si no hay límite por posición.</div>
                 </div>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script type="module" src="../controlador/controler.js"></script>
+    <script type="module" src="js/controlador.js?v=3"></script>
 </body>
 </html>

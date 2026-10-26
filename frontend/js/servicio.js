@@ -1,13 +1,19 @@
-import { Movimiento } from '../dominio/movimiento.js';
+import { Movimiento } from './movimiento.js?v=3';
 
 const API = '/api';
 
 async function request(path, options = {}) {
     const response = await fetch(`${API}${path}`, {
-        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-        ...options
+        ...options,
+        credentials: 'same-origin',
+        // X-Khemik-Request es la protección CSRF que exige el backend en toda escritura.
+        headers: { 'Content-Type': 'application/json', 'X-Khemik-Request': '1', ...(options.headers || {}) }
     });
     const body = await response.json().catch(() => ({}));
+    if (response.status === 401 && !path.startsWith('/auth/')) {
+        // La sesión expiró: se recarga para mostrar la pantalla de acceso.
+        window.location.reload();
+    }
     if (!response.ok) throw new Error(body.error || `Error HTTP ${response.status}`);
     return body;
 }
@@ -15,6 +21,29 @@ async function request(path, options = {}) {
 export class InventarioService {
     constructor() {
         this.movimientos = [];
+        this.catalogos = { productos: [], presentaciones: [], ubicaciones: [] };
+    }
+
+    async cargarCatalogos() {
+        this.catalogos = await request('/catalogos');
+        return this.catalogos;
+    }
+
+    async crearProducto(nombre) {
+        await request('/catalogos/productos', { method: 'POST', body: JSON.stringify({ nombre }) });
+        return this.cargarCatalogos();
+    }
+
+    async crearPresentacion(nombre, capacidad) {
+        await request('/catalogos/presentaciones', { method: 'POST', body: JSON.stringify({ nombre, capacidad }) });
+        return this.cargarCatalogos();
+    }
+
+    async actualizarUsuario(username, cambios) {
+        return request(`/auth/users/${encodeURIComponent(username)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(cambios)
+        });
     }
 
     async authStatus() {
@@ -36,10 +65,10 @@ export class InventarioService {
         return request('/auth/users');
     }
 
-    async crearUsuario(username, password) {
+    async crearUsuario(username, password, role) {
         return request('/auth/users', {
             method: 'POST',
-            body: JSON.stringify({ username, password })
+            body: JSON.stringify({ username, password, role })
         });
     }
 
@@ -83,11 +112,12 @@ export class InventarioService {
     }
 
     async restaurarDesdeJSON(registros) {
-        await request('/restaurar', {
+        const resultado = await request('/restaurar', {
             method: 'POST',
             body: JSON.stringify({ registros })
         });
         await this.cargarDatos();
+        return resultado;
     }
 
     filtrarMovimientos({ busqueda = '', producto = '', presentacion = '', mvto = '' }) {
