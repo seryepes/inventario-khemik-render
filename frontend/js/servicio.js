@@ -102,13 +102,12 @@ export class InventarioService {
         await this.cargarDatos();
     }
 
-    async importarDesdeExcel(registros) {
-        const resultado = await request('/importar', {
+    // Envía un lote del Excel. No recarga los datos: el controlador lo hace al terminar todos los lotes.
+    async importarLote(registros) {
+        return request('/importar', {
             method: 'POST',
             body: JSON.stringify({ registros })
         });
-        await this.cargarDatos();
-        return resultado;
     }
 
     async restaurarDesdeJSON(registros) {

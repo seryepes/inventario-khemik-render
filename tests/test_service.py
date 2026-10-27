@@ -93,6 +93,13 @@ class InventarioServiceTests(unittest.TestCase):
         self.assertEqual(resultado["importados"], 2)
         self.assertEqual(resultado["rechazados"], 1)
         self.assertIn("Registro 3", resultado["errores"][0])
+        self.assertEqual(resultado["fallidos"][0]["indice"], 2)
+
+    def test_lote_de_importacion_sin_validos_devuelve_detalle(self):
+        resultado = self.service.importar([self.movimiento(posicion="99Z"), self.movimiento(cantidad=0)], None)
+        self.assertEqual((resultado["importados"], resultado["rechazados"]), (0, 2))
+        self.assertEqual([f["indice"] for f in resultado["fallidos"]], [0, 1])
+        self.assertIn("no existe", resultado["fallidos"][0]["error"])
 
     def test_restaurar_reemplaza_y_completa_catalogos(self):
         self.guardar()

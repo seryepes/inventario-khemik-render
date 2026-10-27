@@ -72,3 +72,13 @@ body:not([data-rol="admin"]) .solo-admin,
 body[data-rol="consulta"] .requiere-escritura {
     display: none !important;
 }
+
+/* Ventana de importación de Excel */
+.import-progreso {
+    height: 22px;
+}
+
+.import-fallidos {
+    max-height: 280px;
+    overflow-y: auto;
+}
