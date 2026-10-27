@@ -251,7 +251,11 @@ class InventarioService(ServicioBase):
         return registros
 
     def importar(self, registros: Any, usuario_id: Optional[int]) -> dict[str, Any]:
-        """Importa registros nuevos validando cada uno; los inválidos se rechazan sin detener la carga."""
+        """Importa registros nuevos validando cada uno; los inválidos se rechazan sin detener la carga.
+
+        El frontend envía el Excel en lotes para mostrar el progreso, por eso un lote
+        donde todo falla no es un error: se devuelve el detalle de cada rechazo.
+        """
         registros = self._validar_lista(registros)
 
         def orden(item: tuple[int, Any]) -> tuple[str, int]:
@@ -259,9 +263,9 @@ class InventarioService(ServicioBase):
             # Por fecha y, en la misma fecha, ingresos antes que salidas.
             return str(data.get("fecha") or ""), 0 if str(data.get("mvto") or "").lower() == "ingreso" else 1
 
-        importados, errores = 0, []
+        importados, fallidos = 0, []
         with self.transaccion() as repo:
-            for numero, data in sorted(enumerate(registros, 1), key=orden):
+            for indice, data in sorted(enumerate(registros), key=orden):
                 try:
                     with repo.session.begin_nested():
                         mov = Movimiento.from_dict(data)
@@ -269,11 +273,16 @@ class InventarioService(ServicioBase):
                         self._registrar(repo, mov, usuario_id)
                     importados += 1
                 except (ValueError, LookupError) as error:
-                    errores.append(f"Registro {numero}: {error}")
-            if not importados:
-                raise ValueError("No se pudo importar ningún registro válido. " + " ".join(errores[:3]))
-            repo.registrar_auditoria(usuario_id, "movimientos.importar", f"{importados} importados, {len(errores)} rechazados")
-        return {"importados": importados, "rechazados": len(errores), "errores": errores[:20]}
+                    fallidos.append({"indice": indice, "error": str(error)})
+            if importados:
+                repo.registrar_auditoria(usuario_id, "movimientos.importar", f"{importados} importados, {len(fallidos)} rechazados")
+        fallidos.sort(key=lambda fallo: fallo["indice"])
+        return {
+            "importados": importados,
+            "rechazados": len(fallidos),
+            "fallidos": fallidos,
+            "errores": [f"Registro {fallo['indice'] + 1}: {fallo['error']}" for fallo in fallidos[:20]],
+        }
 
     def restaurar(self, registros: Any, usuario_id: Optional[int]) -> dict[str, Any]:
         """Reemplaza todos los movimientos por los de un backup. Crea en el catálogo lo que falte."""

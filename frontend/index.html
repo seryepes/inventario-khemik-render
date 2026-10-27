@@ -6,7 +6,7 @@
     <title>Khemik | Control de Inventario</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css?v=3">
+    <link rel="stylesheet" href="css/style.css?v=4">
     <!-- SheetJS con versión fija desde su CDN oficial (la de npm está desactualizada). -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
@@ -424,6 +424,54 @@
         </div>
     </div>
 
+    <div class="modal fade" id="modalImportacion" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="modalImportacionLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold" id="modalImportacionLabel"><i class="fa-solid fa-file-import me-2"></i>Importación de Excel</h5>
+                </div>
+                <div class="modal-body">
+                    <div class="small text-muted mb-2 text-truncate" id="importArchivo"></div>
+                    <div class="progress import-progreso mb-1" role="progressbar" aria-label="Progreso de la importación" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="importBarra">0%</div>
+                    </div>
+                    <div class="small text-muted mb-3" id="importEstado" aria-live="polite"></div>
+
+                    <div class="row g-2 text-center mb-2">
+                        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-4 fw-bold" id="importTotal">0</div><div class="small text-muted">Filas en el archivo</div></div></div>
+                        <div class="col-6 col-md-3"><div class="border rounded p-2 border-success"><div class="fs-4 fw-bold text-success" id="importCargados">0</div><div class="small text-muted">Cargados</div></div></div>
+                        <div class="col-6 col-md-3"><div class="border rounded p-2 border-danger"><div class="fs-4 fw-bold text-danger" id="importFallidos">0</div><div class="small text-muted">Fallidos</div></div></div>
+                        <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-4 fw-bold text-secondary" id="importNoCargados">0</div><div class="small text-muted">No cargados</div></div></div>
+                    </div>
+                    <div class="form-text mb-3">Fallidos: el sistema los revisó y los rechazó (motivo abajo). No cargados: aún no se enviaron, o quedaron fuera porque la importación se detuvo o se interrumpió.</div>
+
+                    <div class="alert d-none" id="importMensaje" role="status"></div>
+
+                    <div id="importFallidosBloque" class="d-none">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="fw-bold m-0">Filas con error</h6>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnDescargarFallidos">
+                                <i class="fa-solid fa-download me-1"></i>Descargar CSV
+                            </button>
+                        </div>
+                        <div class="table-responsive import-fallidos border rounded">
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <thead class="table-light sticky-top">
+                                    <tr><th>Fila Excel</th><th>Posición</th><th>Lote</th><th>Cant.</th><th>Motivo</th></tr>
+                                </thead>
+                                <tbody id="importFallidosBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-danger" id="btnDetenerImportacion">Detener</button>
+                    <button type="button" class="btn btn-primary" id="btnCerrarImportacion" data-bs-dismiss="modal" disabled>Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="modalUsuarios" tabindex="-1" aria-labelledby="modalUsuariosLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -468,6 +516,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script type="module" src="js/controlador.js?v=3"></script>
+    <script type="module" src="js/controlador.js?v=4"></script>
 </body>
 </html>

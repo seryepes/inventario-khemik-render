@@ -1,4 +1,4 @@
-import { InventarioService } from './servicio.js?v=3';
+import { InventarioService } from './servicio.js?v=4';
 
 const service = new InventarioService();
 
@@ -13,10 +13,14 @@ let currentPage = 1;
 const pageSize = 15;
 let modalRegistro;
 let modalProductos;
+let modalImportacion;
+let importacionActual = null;
+let ultimaImportacionFallidos = [];
 
 document.addEventListener("DOMContentLoaded", async () => {
     modalRegistro = new bootstrap.Modal(document.getElementById('modalRegistro'));
     modalProductos = new bootstrap.Modal(document.getElementById('modalProductosPosicion'));
+    modalImportacion = new bootstrap.Modal(document.getElementById('modalImportacion'));
 
     listeners();
     await iniciarAutenticacion();
@@ -37,6 +41,8 @@ function listeners() {
     });
 
     document.getElementById('excelFileInput').addEventListener('change', leerExcel);
+    document.getElementById('btnDetenerImportacion').addEventListener('click', detenerImportacion);
+    document.getElementById('btnDescargarFallidos').addEventListener('click', descargarFallidosImportacion);
     document.getElementById('backupFileInput').addEventListener('change', importarBackupJSON);
     document.getElementById('inventoryForm').addEventListener('submit', guardarRegistro);
     document.getElementById('formMvto').addEventListener('change', actualizarCamposTraslado);
@@ -575,59 +581,187 @@ async function borrarTodo() {
     }
 }
 
-async function leerExcel(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+const TAMANO_LOTE = 50;
 
-    const reader = new FileReader();
-    reader.onload = async function(event) {
-        const data = new Uint8Array(event.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
+async function leerExcel(e) {
+    const input = e.target;
+    const file = input.files[0];
+    if (!file) return;
+    let filas;
+    try {
+        const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(sheet, { raw: false });
+        // __rowNum__ es la fila real de la hoja (base 0): se usa para señalar errores en el Excel.
+        filas = raw.map(row => ({ filaExcel: (row.__rowNum__ ?? 0) + 1, datos: filaExcelARegistro(row) }));
+    } catch (err) {
+        alert('No se pudo leer el archivo: ' + err.message);
+        return;
+    } finally {
+        input.value = ''; // permite volver a seleccionar el mismo archivo
+    }
+    await ejecutarImportacion(file.name, filas);
+}
 
-        const paraInsertar = raw.map(row => {
-            let col = (row['Columna'] || '').toString().trim();
-            let fila = (row['Fila'] || '').toString().trim();
-            let pos = (col && fila && col !== '0' && fila !== '0') ? `${col}${fila}` : (row['posicion'] || row['Posición'] || 'Sin Ubicar');
+function filaExcelARegistro(row) {
+    let col = (row['Columna'] || '').toString().trim();
+    let fila = (row['Fila'] || '').toString().trim();
+    let pos = (col && fila && col !== '0' && fila !== '0') ? `${col}${fila}` : (row['posicion'] || row['Posición'] || 'Sin Ubicar');
 
-            let prod = 'Otro';
-            if (row['Aluminio'] === 'X') prod = 'Aluminio';
-            else if (row['Magnesio'] === 'X') prod = 'Magnesio';
-            else if (row['producto'] || row['Producto']) prod = row['producto'] || row['Producto'];
+    let prod = 'Otro';
+    if (row['Aluminio'] === 'X') prod = 'Aluminio';
+    else if (row['Magnesio'] === 'X') prod = 'Magnesio';
+    else if (row['producto'] || row['Producto']) prod = row['producto'] || row['Producto'];
 
-            let pres = 'Otra';
-            if (row['125'] === 'X') pres = '125 kg';
-            else if (row['200'] === 'X') pres = '200 kg';
-            else if (row['presentacion'] || row['Presentación']) pres = row['presentacion'] || row['Presentación'];
+    let pres = 'Otra';
+    if (row['125'] === 'X') pres = '125 kg';
+    else if (row['200'] === 'X') pres = '200 kg';
+    else if (row['presentacion'] || row['Presentación']) pres = row['presentacion'] || row['Presentación'];
 
-            let fechaStr = row['Fecha'] || row['fecha'] || new Date().toISOString().split('T')[0];
-            if (fechaStr.includes('/')) {
-                const [dia, mes, anio] = fechaStr.split('/');
-                fechaStr = `${anio}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
-            }
+    let fechaStr = String(row['Fecha'] || row['fecha'] || new Date().toISOString().split('T')[0]).trim();
+    if (fechaStr.includes('/')) {
+        const [dia, mes, anio] = fechaStr.split('/');
+        fechaStr = `${anio}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
+    }
 
-            return {
-                fecha: fechaStr,
-                mvto: row['Mvto'] || row['mvto'] || 'Ingreso',
-                posicion: pos,
-                producto: prod,
-                presentacion: pres,
-                lote: (row['Lote'] || row['lote'] || '-').toString().trim(),
-                cantidad: parseInt(row['Cantidad'] || row['cantidad']) || 0,
-                observaciones: (row['Observaciones'] || row['observaciones'] || '').toString().trim()
-            };
-        });
-
-        try {
-            const resultado = await service.importarDesdeExcel(paraInsertar);
-            alert(`¡Importados ${resultado.importados} registros exitosamente!${detalleErrores(resultado)}`);
-            actualizarEstadoGeneral();
-        } catch (err) {
-            alert("Error al importar: " + err.message);
-        }
+    return {
+        fecha: fechaStr,
+        mvto: row['Mvto'] || row['mvto'] || 'Ingreso',
+        posicion: pos,
+        producto: prod,
+        presentacion: pres,
+        lote: (row['Lote'] || row['lote'] || '-').toString().trim(),
+        cantidad: parseInt(row['Cantidad'] || row['cantidad']) || 0,
+        observaciones: (row['Observaciones'] || row['observaciones'] || '').toString().trim()
     };
-    reader.readAsArrayBuffer(file);
+}
+
+async function ejecutarImportacion(nombreArchivo, filas) {
+    // Mismo orden que aplica el servidor (fecha y, en la misma fecha, ingresos primero),
+    // para que una salida no llegue en un lote anterior al de su ingreso.
+    const peso = f => (String(f.datos.mvto).toLowerCase() === 'ingreso' ? 0 : 1);
+    filas.sort((a, b) => a.datos.fecha.localeCompare(b.datos.fecha) || peso(a) - peso(b) || a.filaExcel - b.filaExcel);
+
+    const estado = { total: filas.length, procesados: 0, cargados: 0, fallidos: [], detener: false };
+    importacionActual = estado;
+    prepararModalImportacion(nombreArchivo, estado);
+    modalImportacion.show();
+
+    let error = null;
+    for (let inicio = 0; inicio < filas.length && !estado.detener; inicio += TAMANO_LOTE) {
+        const lote = filas.slice(inicio, inicio + TAMANO_LOTE);
+        try {
+            const resultado = await service.importarLote(lote.map(f => f.datos));
+            estado.cargados += resultado.importados;
+            resultado.fallidos.forEach(f => estado.fallidos.push({ ...lote[f.indice], error: f.error }));
+        } catch (err) {
+            // Si un lote no responde se detiene todo: las filas restantes quedan como "no cargadas".
+            error = err.message;
+            break;
+        }
+        estado.procesados += lote.length;
+        actualizarModalImportacion(estado);
+    }
+
+    try {
+        await service.cargarDatos();
+        actualizarEstadoGeneral();
+    } catch (err) {
+        error = error || `Los datos se importaron, pero no se pudo refrescar la tabla: ${err.message}`;
+    }
+    finalizarImportacion(estado, error);
+}
+
+function prepararModalImportacion(nombreArchivo, estado) {
+    document.getElementById('importArchivo').textContent = `Archivo: ${nombreArchivo}`;
+    document.getElementById('importBarra').className = 'progress-bar progress-bar-striped progress-bar-animated';
+    document.getElementById('importMensaje').className = 'alert d-none';
+    document.getElementById('importFallidosBody').replaceChildren();
+    document.getElementById('importFallidosBloque').classList.add('d-none');
+    const detener = document.getElementById('btnDetenerImportacion');
+    detener.classList.remove('d-none');
+    detener.disabled = false;
+    detener.textContent = 'Detener';
+    document.getElementById('btnCerrarImportacion').disabled = true;
+    actualizarModalImportacion(estado);
+}
+
+function actualizarModalImportacion(estado) {
+    const porcentaje = estado.total ? Math.round((estado.procesados / estado.total) * 100) : 100;
+    const barra = document.getElementById('importBarra');
+    barra.style.width = `${porcentaje}%`;
+    barra.textContent = `${porcentaje}%`;
+    barra.parentElement.setAttribute('aria-valuenow', porcentaje);
+    document.getElementById('importEstado').textContent = `Procesando ${estado.procesados} de ${estado.total} filas...`;
+    document.getElementById('importTotal').textContent = estado.total;
+    document.getElementById('importCargados').textContent = estado.cargados;
+    document.getElementById('importFallidos').textContent = estado.fallidos.length;
+    document.getElementById('importNoCargados').textContent = estado.total - estado.procesados;
+    renderFallidosImportacion(estado.fallidos);
+}
+
+function renderFallidosImportacion(fallidos) {
+    const bloque = document.getElementById('importFallidosBloque');
+    bloque.classList.toggle('d-none', fallidos.length === 0);
+    const tbody = document.getElementById('importFallidosBody');
+    tbody.innerHTML = [...fallidos]
+        .sort((a, b) => a.filaExcel - b.filaExcel)
+        .map(f => `<tr>
+            <td class="fw-bold">${f.filaExcel}</td>
+            <td>${esc(f.datos.posicion)}</td>
+            <td><code>${esc(f.datos.lote)}</code></td>
+            <td>${f.datos.cantidad}</td>
+            <td class="text-danger small">${esc(f.error)}</td>
+        </tr>`).join('');
+}
+
+function finalizarImportacion(estado, error) {
+    const noCargados = estado.total - estado.procesados;
+    const barra = document.getElementById('importBarra');
+    const color = error ? 'bg-danger' : (estado.fallidos.length || noCargados) ? 'bg-warning' : 'bg-success';
+    barra.className = `progress-bar ${color}`;
+    actualizarModalImportacion(estado);
+
+    let titulo = 'Importación finalizada.';
+    if (error) titulo = 'La importación se interrumpió.';
+    else if (estado.detener) titulo = 'Importación detenida por el usuario.';
+    else if (!estado.total) titulo = 'El archivo no tiene filas con datos.';
+    document.getElementById('importEstado').textContent = titulo;
+
+    const mensaje = document.getElementById('importMensaje');
+    mensaje.className = `alert ${error ? 'alert-danger' : estado.fallidos.length ? 'alert-warning' : 'alert-success'} mb-3`;
+    mensaje.textContent = error
+        ? `Error: ${error} Las filas cargadas antes del error se conservaron.`
+        : `Se cargaron ${estado.cargados} de ${estado.total} filas.`
+          + (estado.fallidos.length ? ` ${estado.fallidos.length} fallaron: revisa el detalle abajo.` : '')
+          + (noCargados ? ` ${noCargados} no se enviaron.` : '');
+
+    document.getElementById('btnDetenerImportacion').classList.add('d-none');
+    document.getElementById('btnCerrarImportacion').disabled = false;
+    importacionActual = null;
+    ultimaImportacionFallidos = [...estado.fallidos].sort((a, b) => a.filaExcel - b.filaExcel);
+}
+
+function detenerImportacion() {
+    if (!importacionActual) return;
+    importacionActual.detener = true;
+    const boton = document.getElementById('btnDetenerImportacion');
+    boton.disabled = true;
+    boton.textContent = 'Deteniendo...';
+}
+
+function descargarFallidosImportacion() {
+    const celda = valor => `"${String(valor ?? '').replace(/"/g, '""')}"`;
+    const filas = ultimaImportacionFallidos.map(f => [
+        f.filaExcel, f.datos.fecha, f.datos.mvto, f.datos.posicion, f.datos.producto,
+        f.datos.presentacion, f.datos.lote, f.datos.cantidad, f.error
+    ].map(celda).join(','));
+    const csv = '\ufeff' + ['Fila Excel,Fecha,Movimiento,Posicion,Producto,Presentacion,Lote,Cantidad,Motivo', ...filas].join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    link.download = `errores_importacion_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 500);
 }
 
 function detalleErrores(resultado) {
