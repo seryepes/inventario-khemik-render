@@ -1,7 +1,9 @@
 export class Movimiento {
-    constructor({ id = null, fecha, mvto, posicion = 'Sin Ubicar', posicionDestino = '', producto = 'Otro', presentacion = 'Otra', lote = '-', cantidad = 0, observaciones = '', trasladoId = null, esTraslado = false }) {
+    constructor({ id = null, fecha, creadoEn = '', creadoPor = '', mvto, posicion = 'Sin Ubicar', posicionDestino = '', producto = 'Otro', presentacion = 'Otra', lote = '-', cantidad = 0, observaciones = '', trasladoId = null, esTraslado = false }) {
         this.id = id ? parseInt(id) : null;
         this.fecha = fecha || new Date().toISOString().split('T')[0];
+        this.creadoEn = creadoEn;
+        this.creadoPor = creadoPor;
         this.mvto = Movimiento.normalizarMovimiento(mvto);
         this.posicion = Movimiento.normalizarPosicion(posicion);
         this.posicionDestino = posicionDestino ? Movimiento.normalizarPosicion(posicionDestino) : '';
@@ -47,5 +49,15 @@ export class Movimiento {
         if (partes.length !== 3) return this.fecha;
         const [anio, mes, dia] = partes;
         return `${dia.padStart(2, '0')}/${mes.padStart(2, '0')}/${anio}`;
+    }
+
+    get RegistroFormateado() {
+        if (!this.creadoEn) return 'No disponible';
+        const fechaHora = new Date(this.creadoEn);
+        if (Number.isNaN(fechaHora.getTime())) return 'No disponible';
+        return new Intl.DateTimeFormat('es-CO', {
+            dateStyle: 'short',
+            timeStyle: 'short'
+        }).format(fechaHora);
     }
 }

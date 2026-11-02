@@ -166,7 +166,8 @@ def catalogos():
 @bp.post("/catalogos/productos")
 @requiere_rol("admin")
 def crear_producto():
-    return jsonify(inventario().crear_producto(cuerpo_json().get("nombre"), usuario_id())), 201
+    data = cuerpo_json()
+    return jsonify(inventario().crear_producto(data.get("nombre"), data.get("categoria"), usuario_id())), 201
 
 
 @bp.post("/catalogos/presentaciones")
@@ -237,6 +238,29 @@ def estadisticas():
 @bp.get("/posiciones")
 def posiciones():
     return jsonify(inventario().mapa_posiciones())
+
+
+@bp.patch("/posiciones/<path:codigo>/peligro")
+@requiere_rol(*ESCRITURA)
+def actualizar_peligro_posicion(codigo: str):
+    data = cuerpo_json()
+    return jsonify(inventario().actualizar_peligro_posicion(
+        codigo, data.get("peligrosa"), data.get("titulo"), usuario_id(),
+    ))
+
+
+@bp.get("/lotes/estados")
+def estados_lotes():
+    return jsonify(inventario().estados_lotes())
+
+
+@bp.patch("/lotes/estado")
+@requiere_rol(*ESCRITURA)
+def actualizar_estado_lote():
+    data = cuerpo_json()
+    return jsonify(inventario().actualizar_estado_lote(
+        data.get("producto"), data.get("lote"), data.get("estado"), usuario_id(),
+    ))
 
 
 @bp.post("/importar")

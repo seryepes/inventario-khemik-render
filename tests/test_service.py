@@ -1,19 +1,24 @@
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
+
+from sqlalchemy import create_engine, select, text
 
 from backend.database import inicializar_base
 from backend.domain import Movimiento
+from backend.models import EstadoLote, Movimiento as MovimientoModel, ahora
 from backend.service import InventarioService
 
 
 class InventarioServiceTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        session_factory = inicializar_base(f"sqlite:///{Path(self.temp_dir.name) / 'test.db'}")
-        self.service = InventarioService(session_factory)
+        self.session_factory = inicializar_base(f"sqlite:///{Path(self.temp_dir.name) / 'test.db'}")
+        self.service = InventarioService(self.session_factory)
 
     def tearDown(self):
+        self.session_factory.kw["bind"].dispose()
         self.temp_dir.cleanup()
 
     def movimiento(self, **changes):
@@ -32,6 +37,78 @@ class InventarioServiceTests(unittest.TestCase):
         self.guardar(cantidad=5)
         with self.assertRaisesRegex(ValueError, "está llena"):
             self.guardar(lote="L-2", cantidad=1)
+
+    def test_ubicacion_no_acepta_otro_producto_mientras_tiene_stock(self):
+        posicion = "PISO PLANTA1"
+        self.guardar(posicion=posicion)
+        self.guardar(posicion=posicion, lote="L-2", cantidad=1)
+
+        with self.assertRaisesRegex(ValueError, "está ocupada por Aluminio"):
+            self.guardar(posicion=posicion, producto="Magnesio", lote="M-1")
+
+    def test_traslado_no_permite_destino_ocupado_por_otro_producto(self):
+        self.guardar(posicion="1A")
+        self.guardar(posicion="PISO PLANTA2", producto="Magnesio", lote="M-1")
+
+        with self.assertRaisesRegex(ValueError, "está ocupada por Magnesio"):
+            self.service.guardar_traslado(
+                self.movimiento(posicion="1A", posicionDestino="PISO PLANTA2"), None,
+            )
+
+    def test_posiciones_de_piso_quedan_en_catalogo_y_mapa(self):
+        catalogo = self.service.catalogos()
+        mapa = self.service.mapa_posiciones()
+
+        self.assertIn("PISO PLANTA1", catalogo["ubicaciones"])
+        self.assertIn("PISO PLANTA2", catalogo["ubicaciones"])
+        self.assertEqual(mapa["PISO PLANTA1"]["cantidad"], 0)
+        self.assertEqual(mapa["PISO PLANTA2"]["cantidad"], 0)
+
+    def test_posicion_peligrosa_guarda_y_retorna_titulo_y_color(self):
+        self.guardar(posicion="1A", producto="Otro", presentacion="Otra")
+        posicion = self.service.actualizar_peligro_posicion(
+            "1A", True, "Material inflamable", None,
+        )
+        self.assertEqual(posicion, {
+            "codigo": "1A",
+            "peligrosa": True,
+            "tituloPeligro": "Material inflamable",
+        })
+        self.assertTrue(self.service.mapa_posiciones()["1A"]["peligrosa"])
+        self.assertEqual(self.service.mapa_posiciones()["1A"]["tituloPeligro"], "Material inflamable")
+        self.assertEqual(self.service.mapa_posiciones()["1A"]["materiaPrimaTotal"], 2)
+
+        with self.assertRaisesRegex(ValueError, "título"):
+            self.service.actualizar_peligro_posicion("1A", True, "", None)
+        with self.assertRaisesRegex(LookupError, "no existe"):
+            self.service.actualizar_peligro_posicion("99Z", True, "Peligro", None)
+
+        retirada = self.service.actualizar_peligro_posicion("1A", False, "", None)
+        self.assertFalse(retirada["peligrosa"])
+        self.assertEqual(retirada["tituloPeligro"], "")
+
+    def test_migracion_agrega_campos_de_peligro_a_ubicaciones_existentes(self):
+        legacy_path = Path(self.temp_dir.name) / "legacy_locations.db"
+        engine = create_engine(f"sqlite:///{legacy_path}")
+        with engine.begin() as connection:
+            connection.execute(text(
+                "CREATE TABLE ubicaciones (id INTEGER PRIMARY KEY, codigo VARCHAR(20) UNIQUE, "
+                "fila INTEGER, columna VARCHAR(2), activo BOOLEAN)"
+            ))
+            connection.execute(text(
+                "INSERT INTO ubicaciones (codigo, fila, columna, activo) VALUES ('1A', 1, 'A', 1)"
+            ))
+        engine.dispose()
+
+        legacy_factory = inicializar_base(f"sqlite:///{legacy_path}")
+        try:
+            legacy_service = InventarioService(legacy_factory)
+            self.assertFalse(legacy_service.mapa_posiciones()["1A"]["peligrosa"])
+            self.assertEqual(legacy_service.mapa_posiciones()["1A"]["tituloPeligro"], "")
+            legacy_service.actualizar_peligro_posicion("1A", True, "Alerta", None)
+            self.assertTrue(legacy_service.mapa_posiciones()["1A"]["peligrosa"])
+        finally:
+            legacy_factory.kw["bind"].dispose()
 
     def test_editar_ingreso_no_cuenta_doble_en_capacidad(self):
         creado = self.guardar(cantidad=5)
@@ -81,8 +158,102 @@ class InventarioServiceTests(unittest.TestCase):
     def test_producto_debe_estar_en_catalogo(self):
         with self.assertRaisesRegex(ValueError, "no está registrado"):
             self.guardar(producto="Cobre")
-        self.service.crear_producto("Cobre", None)
+        self.service.crear_producto("Cobre", "materia_prima", None)
         self.assertEqual(self.guardar(producto="cobre")["producto"], "Cobre")
+
+    def test_lote_nuevo_ingresa_en_cuarentena_y_se_aprueba_a_los_diez_dias(self):
+        self.guardar()
+        estados = self.service.estados_lotes()
+        self.assertEqual(len(estados), 1)
+        self.assertEqual(estados[0]["estado"], "cuarentena")
+        self.assertFalse(estados[0]["manual"])
+
+        with self.session_factory.begin() as session:
+            estado = session.scalar(select(EstadoLote).where(EstadoLote.lote == "L-1"))
+            estado.primer_ingreso_en = ahora() - timedelta(days=10)
+
+        estados = self.service.estados_lotes()
+        self.assertEqual(estados[0]["estado"], "aprobado")
+        with self.session_factory() as session:
+            estado = session.scalar(select(EstadoLote).where(EstadoLote.lote == "L-1"))
+            self.assertEqual(estado.estado, "aprobado")
+        self.assertEqual(self.service.auditoria()[0]["accion"], "lote.aprobacion_automatica")
+
+    def test_lote_existente_sin_estado_se_reconstruye_desde_su_primer_ingreso(self):
+        self.guardar()
+        with self.session_factory.begin() as session:
+            session.execute(EstadoLote.__table__.delete())
+            movimiento = session.scalar(select(MovimientoModel).where(MovimientoModel.lote == "L-1"))
+            movimiento.creado_en = ahora() - timedelta(days=12)
+
+        estados = self.service.estados_lotes()
+        self.assertEqual(estados[0]["estado"], "aprobado")
+        self.assertFalse(estados[0]["manual"])
+
+    def test_cambio_manual_persiste_y_se_aplica_al_lote_completo(self):
+        self.guardar()
+        self.guardar(posicion="2A", presentacion="200 kg", cantidad=1)
+        manual = self.service.actualizar_estado_lote("Aluminio", "L-1", "aprobado", None)
+        self.assertTrue(manual["manual"])
+
+        with self.session_factory.begin() as session:
+            estado = session.scalar(select(EstadoLote).where(EstadoLote.lote == "L-1"))
+            estado.primer_ingreso_en = ahora() - timedelta(days=20)
+
+        estados = self.service.estados_lotes()
+        self.assertEqual(len(estados), 1)
+        self.assertEqual(estados[0]["estado"], "aprobado")
+        self.assertTrue(estados[0]["manual"])
+
+        self.service.actualizar_estado_lote("Aluminio", "L-1", "cuarentena", None)
+        self.assertEqual(self.service.estados_lotes()[0]["estado"], "cuarentena")
+
+    def test_estado_de_lote_desaparece_al_agotar_todas_sus_posiciones(self):
+        self.guardar()
+        self.guardar(posicion="2A", cantidad=1)
+        self.assertEqual(len(self.service.estados_lotes()), 1)
+        self.service.guardar_movimiento(self.movimiento(posicion="1A", mvto="Salida", cantidad=2), None)
+        self.assertEqual(len(self.service.estados_lotes()), 1)
+        self.service.guardar_movimiento(self.movimiento(posicion="2A", mvto="Salida", cantidad=1), None)
+        self.assertEqual(self.service.estados_lotes(), [])
+
+    def test_catalogo_y_creacion_de_producto_incluyen_categoria(self):
+        productos = {p["nombre"]: p["categoria"] for p in self.service.catalogos()["productos"]}
+        self.assertEqual(productos["Aluminio"], "producto_terminado")
+        self.assertEqual(productos["Magnesio"], "producto_terminado")
+        self.assertEqual(productos["Otro"], "materia_prima")
+
+        with self.assertRaisesRegex(ValueError, "categoría"):
+            self.service.crear_producto("Cobre", "sin_categoria", None)
+        creado = self.service.crear_producto("Cobre", "materia_prima", None)
+        self.assertEqual(creado["categoria"], "materia_prima")
+
+    def test_migracion_clasifica_productos_existentes_sin_categoria(self):
+        legacy_path = Path(self.temp_dir.name) / "legacy.db"
+        engine = create_engine(f"sqlite:///{legacy_path}")
+        with engine.begin() as connection:
+            connection.execute(text(
+                "CREATE TABLE productos (id INTEGER PRIMARY KEY, nombre VARCHAR(60) UNIQUE, "
+                "activo BOOLEAN, creado_en DATETIME)"
+            ))
+            connection.execute(text(
+                "INSERT INTO productos (nombre, activo) VALUES "
+                "('Aluminio', 1), ('Magnesio', 1), ('Otro', 1)"
+            ))
+        engine.dispose()
+
+        legacy_factory = inicializar_base(f"sqlite:///{legacy_path}")
+        try:
+            with legacy_factory() as session:
+                from backend.models import Producto
+                productos = {p.nombre: p.categoria for p in session.query(Producto).all()}
+            self.assertEqual(productos, {
+                "Aluminio": "producto_terminado",
+                "Magnesio": "producto_terminado",
+                "Otro": "materia_prima",
+            })
+        finally:
+            legacy_factory.kw["bind"].dispose()
 
     def test_importar_acepta_validos_y_reporta_rechazados(self):
         resultado = self.service.importar([
@@ -92,8 +263,8 @@ class InventarioServiceTests(unittest.TestCase):
         ], None)
         self.assertEqual(resultado["importados"], 2)
         self.assertEqual(resultado["rechazados"], 1)
-        self.assertIn("Registro 3", resultado["errores"][0])
-        self.assertEqual(resultado["fallidos"][0]["indice"], 2)
+        self.assertTrue(any("Registro 3" in error for error in resultado["errores"]))
+        self.assertEqual({fila["indice"] for fila in resultado["fallidos"]}, {2})
 
     def test_lote_de_importacion_sin_validos_devuelve_detalle(self):
         resultado = self.service.importar([self.movimiento(posicion="99Z"), self.movimiento(cantidad=0)], None)
@@ -103,6 +274,7 @@ class InventarioServiceTests(unittest.TestCase):
 
     def test_restaurar_reemplaza_y_completa_catalogos(self):
         self.guardar()
+        self.service.crear_producto("Zinc", "materia_prima", None)
         resultado = self.service.restaurar([
             {**self.movimiento(producto="Zinc", posicion="PATIO"), "id": 7},
             self.movimiento(cantidad=0),
@@ -115,6 +287,8 @@ class InventarioServiceTests(unittest.TestCase):
     def test_auditoria_registra_operaciones(self):
         self.guardar()
         self.assertEqual(self.service.auditoria()[0]["accion"], "movimiento.crear")
+        movimiento = self.service.listar()[0]
+        self.assertTrue(movimiento["creadoEn"])
 
 
 if __name__ == "__main__":

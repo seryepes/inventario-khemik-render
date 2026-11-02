@@ -1,6 +1,7 @@
-import { InventarioService } from './servicio.js?v=4';
+import { InventarioService } from './servicio.js?v=8';
 
 const service = new InventarioService();
+const TOTAL_POSICIONES = 266;
 
 const ROLES = { admin: 'Administrador', operador: 'Operador', consulta: 'Consulta' };
 
@@ -16,6 +17,7 @@ let modalProductos;
 let modalImportacion;
 let importacionActual = null;
 let ultimaImportacionFallidos = [];
+let timerCambioEstadoLote = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
     modalRegistro = new bootstrap.Modal(document.getElementById('modalRegistro'));
@@ -46,16 +48,28 @@ function listeners() {
     document.getElementById('backupFileInput').addEventListener('change', importarBackupJSON);
     document.getElementById('inventoryForm').addEventListener('submit', guardarRegistro);
     document.getElementById('formMvto').addEventListener('change', actualizarCamposTraslado);
+    document.getElementById('formCategoriaProducto').addEventListener('change', () => actualizarProductosPorCategoria(false));
     document.getElementById('btnExportarExcel').addEventListener('click', exportarExcel);
     document.getElementById('btnExportarCSV').addEventListener('click', exportarCSV);
     document.getElementById('btnBackupJson').addEventListener('click', exportarBackupJSON);
     document.getElementById('btnBorrarTodo').addEventListener('click', borrarTodo);
     document.getElementById('btnNuevoRegistro').addEventListener('click', prepararNuevoRegistro);
-    document.getElementById('stockSearchInput').addEventListener('input', renderStockConsolidado);
-    document.getElementById('stockFilterProduct').addEventListener('change', renderStockConsolidado);
+    document.getElementById('stockSearchProductoTerminado').addEventListener('input', renderStockConsolidado);
+    document.getElementById('stockSearchMateriaPrima').addEventListener('input', renderStockConsolidado);
+    document.getElementById('stockTableProductoTerminado').addEventListener('click', guardarEstadoLote);
+    document.getElementById('stockTableMateriaPrima').addEventListener('click', guardarEstadoLote);
 
-    document.getElementById('tab-stock-tab').addEventListener('click', () => renderStockConsolidado());
+    document.getElementById('tab-stock-terminado-tab').addEventListener('click', () => renderStockConsolidado());
+    document.getElementById('tab-stock-materias-primas-tab').addEventListener('click', () => renderStockConsolidado());
     document.getElementById('tab-posiciones-tab').addEventListener('click', () => renderMapaPosiciones());
+    document.getElementById('contenidoProductosPosicion').addEventListener('submit', guardarAlertaPeligroPosicion);
+    document.getElementById('contenidoProductosPosicion').addEventListener('change', event => {
+        if (event.target.id === 'posicionPeligrosa') {
+            const titulo = document.getElementById('tituloPeligroPosicion');
+            titulo.required = event.target.checked;
+            titulo.disabled = !event.target.checked;
+        }
+    });
 }
 
 async function iniciarAutenticacion() {
@@ -202,7 +216,10 @@ async function accionUsuario(event) {
 async function crearProducto(event) {
     event.preventDefault();
     try {
-        await service.crearProducto(document.getElementById('newProductName').value);
+        await service.crearProducto(
+            document.getElementById('newProductName').value,
+            document.getElementById('newProductCategory').value
+        );
         event.target.reset();
         poblarCatalogos();
         alert('Producto agregado al catálogo.');
@@ -237,15 +254,28 @@ function llenarSelect(id, nombres, opcionVacia = null) {
 
 function poblarCatalogos() {
     const { productos, presentaciones, ubicaciones } = service.catalogos;
-    const productosActivos = productos.filter(p => p.activo).map(p => p.nombre);
     const presentacionesActivas = presentaciones.filter(p => p.activo).map(p => p.nombre);
-    llenarSelect('formProducto', productosActivos);
+    actualizarProductosPorCategoria();
     llenarSelect('formPresentacion', presentacionesActivas);
     llenarSelect('filterProduct', productos.map(p => p.nombre), 'Todos los Productos');
-    llenarSelect('stockFilterProduct', productos.map(p => p.nombre), 'Todos los Productos');
     llenarSelect('filterPres', presentaciones.map(p => p.nombre), 'Todas Presentaciones');
     const lista = document.getElementById('listaPosiciones');
     lista.replaceChildren(...['SIN UBICAR', ...ubicaciones].map(codigo => new Option(codigo)));
+}
+
+function actualizarProductosPorCategoria(preservar = true) {
+    const categoria = document.getElementById('formCategoriaProducto').value;
+    const productos = service.catalogos.productos
+        .filter(producto => producto.activo && producto.categoria === categoria)
+        .map(producto => producto.nombre);
+    llenarSelect(
+        'formProducto',
+        productos,
+        categoria ? 'Selecciona un producto' : 'Selecciona primero el tipo de producto'
+    );
+    const select = document.getElementById('formProducto');
+    select.disabled = !categoria;
+    if (!preservar && select.options.length) select.selectedIndex = 0;
 }
 
 async function cargarAplicacion() {
@@ -263,6 +293,7 @@ function actualizarEstadoGeneral() {
     renderEstadisticas();
     renderStockConsolidado();
     renderMapaPosiciones();
+    programarCambioAutomaticoEstadoLote();
 }
 
 function renderTabla() {
@@ -285,7 +316,7 @@ function renderTabla() {
     document.getElementById('totalRecordsBadge').innerText = `${filtrados.length} registros`;
 
     if (pageData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">No se encontraron registros.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted py-4">No se encontraron registros.</td></tr>`;
     } else {
         pageData.forEach(item => {
             const tr = document.createElement('tr');
@@ -294,6 +325,7 @@ function renderTabla() {
             tr.innerHTML = `
                 <td class="fw-bold text-muted">#${item.id}</td>
                 <td class="small">${esc(item.FechaFormateada)}</td>
+                <td class="small">${esc(item.RegistroFormateado)}</td>
                 <td><span class="badge ${badgeClass} badge-pos">${esc(item.mvto)}</span></td>
                 <td><span class="badge bg-light text-dark border fw-bold">${esc(item.posicion)}</span></td>
                 <td class="fw-semibold">${esc(item.producto)}</td>
@@ -379,33 +411,43 @@ function renderEstadisticas() {
 }
 
 function renderStockConsolidado() {
-    const stock = service.obtenerStockConsolidado();
-    const txt = document.getElementById('stockSearchInput').value.toLowerCase().trim();
-    const prod = document.getElementById('stockFilterProduct').value;
+    renderStockCategoria('producto_terminado', 'ProductoTerminado');
+    renderStockCategoria('materia_prima', 'MateriaPrima');
+}
 
-    let totAlu = 0, totMag = 0, totGen = 0;
-    stock.forEach(s => {
-        totGen += s.cantidad;
-        if (s.producto === 'Aluminio') totAlu += s.cantidad;
-        else if (s.producto === 'Magnesio') totMag += s.cantidad;
-    });
-
-    document.getElementById('stockTotalAluminio').innerText = `${totAlu} un.`;
-    document.getElementById('stockTotalMagnesio').innerText = `${totMag} un.`;
-    document.getElementById('stockTotalGeneral').innerText = `${totGen} un.`;
-
-    const filtrados = stock.filter(s => {
-        const matchTxt = s.posicion.toLowerCase().includes(txt) || s.producto.toLowerCase().includes(txt) || s.lote.toLowerCase().includes(txt);
-        const matchProd = !prod || s.producto === prod;
-        return matchTxt && matchProd;
-    });
-
-    const tbody = document.getElementById('stockTableBody');
-    tbody.innerHTML = '';
+function renderStockCategoria(categoria, sufijo) {
+    const stock = service.obtenerStockConsolidado().filter(item => item.categoria === categoria);
+    const txt = document.getElementById(`stockSearch${sufijo}`).value.toLowerCase().trim();
+    const filtrados = stock.filter(item =>
+        item.posicion.toLowerCase().includes(txt) ||
+        item.producto.toLowerCase().includes(txt) ||
+        item.lote.toLowerCase().includes(txt)
+    );
+    const tbody = document.getElementById(`stockTable${sufijo}`);
+    tbody.replaceChildren();
     let totalFiltrado = 0;
+    let totalKg = 0;
 
     filtrados.forEach(s => {
         totalFiltrado += s.cantidad;
+        const kgPorUnidad = obtenerKgPorUnidad(s.presentacion);
+        const kgFila = kgPorUnidad === null ? null : s.cantidad * kgPorUnidad;
+        if (kgFila !== null) totalKg += kgFila;
+        const estadoLote = s.estadoLote;
+        const estado = estadoLote?.estado || 'cuarentena';
+        const nombreEstado = estado === 'aprobado' ? 'Aprobado' : 'Cuarentena';
+        const colorEstado = estado === 'aprobado' ? '#198754' : '#fd7e14';
+        const colorTextoEstado = estado === 'aprobado' ? '#fff' : '#212529';
+        const controlEstado = ['admin', 'operador'].includes(document.body.dataset.rol)
+            ? `<div class="d-flex gap-1 mt-1">
+                    <select class="form-select form-select-sm" data-estado-seleccionado aria-label="Cambiar estado de ${esc(s.producto)} lote ${esc(s.lote)}">
+                        <option value="cuarentena" ${estado === 'cuarentena' ? 'selected' : ''}>Cuarentena</option>
+                        <option value="aprobado" ${estado === 'aprobado' ? 'selected' : ''}>Aprobado</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-accion-estado-lote
+                        data-producto="${esc(s.producto)}" data-lote="${esc(s.lote)}" aria-label="Guardar estado">Guardar</button>
+                </div>`
+            : '';
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><span class="badge bg-secondary">${esc(s.posicion)}</span></td>
@@ -413,83 +455,196 @@ function renderStockConsolidado() {
             <td><span class="badge bg-light text-dark border">${esc(s.presentacion)}</span></td>
             <td><code>${esc(s.lote)}</code></td>
             <td class="text-end fw-bold text-success fs-6">${s.cantidad}</td>
+            <td class="text-end fw-semibold">${kgFila === null ? 'No definido' : `${formatearKg(kgFila)} kg`}</td>
+            <td>
+                <span class="badge" style="background-color:${colorEstado};color:${colorTextoEstado};">${nombreEstado}${estadoLote?.manual ? ' · Manual' : ''}</span>
+                ${controlEstado}
+            </td>
         `;
         tbody.appendChild(tr);
     });
 
-    document.getElementById('stockTableFooterTotal').innerText = totalFiltrado;
-    document.getElementById('stockFiltradoBadge').innerText = `${totalFiltrado} un. en esta vista`;
+    if (!filtrados.length) {
+        const fila = document.createElement('tr');
+        fila.innerHTML = '<td colspan="7" class="text-center text-muted py-4">No hay existencias para esta categoría.</td>';
+        tbody.appendChild(fila);
+    }
+
+    document.getElementById(`stockFooter${sufijo}`).innerText = totalFiltrado;
+    document.getElementById(`stockKgFooter${sufijo}`).innerText = `${formatearKg(totalKg)} kg`;
+    document.getElementById(`stockTotal${sufijo}`).innerText = `${totalFiltrado} un.`;
+}
+
+async function guardarEstadoLote(event) {
+    const boton = event.target.closest('button[data-accion-estado-lote]');
+    if (!boton) return;
+    const select = boton.parentElement.querySelector('[data-estado-seleccionado]');
+    boton.disabled = true;
+    try {
+        await service.actualizarEstadoLote(boton.dataset.producto, boton.dataset.lote, select.value);
+        renderStockConsolidado();
+        programarCambioAutomaticoEstadoLote();
+    } catch (error) {
+        alert(`No se pudo actualizar el estado del lote: ${error.message}`);
+    } finally {
+        boton.disabled = false;
+    }
+}
+
+function programarCambioAutomaticoEstadoLote() {
+    if (timerCambioEstadoLote !== null) clearTimeout(timerCambioEstadoLote);
+    const expiraciones = [...service.estadosLote.values()]
+        .filter(lote => lote.estado === 'cuarentena' && !lote.manual)
+        .map(lote => Date.parse(lote.primerIngresoEn) + 10 * 24 * 60 * 60 * 1000)
+        .filter(Number.isFinite);
+    if (!expiraciones.length) {
+        timerCambioEstadoLote = null;
+        return;
+    }
+
+    const demora = Math.max(1000, Math.min(...expiraciones) - Date.now() + 100);
+    timerCambioEstadoLote = setTimeout(refrescarEstadosLoteAutomaticos, demora);
+}
+
+async function refrescarEstadosLoteAutomaticos() {
+    try {
+        await service.cargarEstadosLotes();
+        renderStockConsolidado();
+        programarCambioAutomaticoEstadoLote();
+    } catch (error) {
+        alert(`No se pudo actualizar automáticamente el estado de los lotes: ${error.message}`);
+        timerCambioEstadoLote = setTimeout(refrescarEstadosLoteAutomaticos, 60_000);
+    }
+}
+
+function obtenerKgPorUnidad(presentacion) {
+    const coincidencia = presentacion.match(/(\d+(?:[.,]\d+)?)\s*kg\b/i);
+    if (!coincidencia) return null;
+    const kg = Number(coincidencia[1].replace(',', '.'));
+    return Number.isFinite(kg) && kg > 0 ? kg : null;
+}
+
+function formatearKg(cantidad) {
+    return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(cantidad);
 }
 
 function renderMapaPosiciones() {
     const mapPosData = service.obtenerMapaPosiciones();
     const mapContainer = document.getElementById('mapaPosiciones');
     mapContainer.innerHTML = '';
+    mapContainer.style.cssText = 'display:grid; grid-template-columns:repeat(6, minmax(125px, 1fr)); min-width:820px; gap:12px; padding:8px;';
 
-    for (let fila = 1; fila <= 44; fila++) {
-        const filaDiv = document.createElement('div');
-        filaDiv.className = 'grid-fila';
-        filaDiv.style.cssText = 'display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 12px; padding: 10px; background: #f8f9fa; border-radius: 8px;';
+    Object.entries(mapPosData)
+        .sort(([codigoA], [codigoB]) => compararPosiciones(codigoA, codigoB))
+        .forEach(([posKey, datos]) => {
+            const cantidad = Math.max(0, datos.cantidad || 0);
+            const estaOcupada = cantidad > 0;
+            const puestoDiv = document.createElement('button');
+            puestoDiv.type = 'button';
+            puestoDiv.className = 'position-tile';
+            puestoDiv.style.cssText = 'min-height:96px; padding:12px 8px; border-radius:10px; text-align:center; font-weight:600; font-size:18px; cursor:pointer; transition:all 0.2s ease; border:2px solid transparent; line-height:1.3; overflow-wrap:anywhere;';
 
-        const label = document.createElement('div');
-        label.style.cssText = 'grid-column: 1 / -1; font-weight: bold; font-size: 14px; color: #495057; margin-bottom: 5px;';
-        label.textContent = `Fila ${fila}`;
-        filaDiv.appendChild(label);
-
-        ['A', 'B', 'C', 'D', 'E', 'F'].forEach(col => {
-            const posKey = `${fila}${col}`;
-            const datos = mapPosData[posKey];
-            const cantidad = datos ? Math.max(0, datos.cantidad) : 0;
-            const estaOcupada = datos && cantidad > 0;
-
-            const puestoDiv = document.createElement('div');
-            puestoDiv.style.cssText = 'padding: 10px; border-radius: 6px; text-align: center; font-weight: 500; font-size: 12px; cursor: pointer; transition: all 0.2s ease; border: 2px solid transparent; line-height: 1.3;';
-
-            if (estaOcupada) {
-                const tieneAlu = datos.aluminioTotal > 0;
-                const tieneMag = datos.magnesioTotal > 0;
-                let colorBase = (tieneAlu && tieneMag) ? '#6f42c1' : (tieneAlu ? '#0d6efd' : (tieneMag ? '#fd7e14' : '#212529'));
-
+            if (datos.peligrosa) {
+                puestoDiv.style.backgroundColor = '#dc3545';
+                puestoDiv.style.color = 'white';
+            } else if (estaOcupada) {
+                const tieneMateriaPrima = datos.materiaPrimaTotal > 0;
+                const tieneTerminado = datos.aluminioTotal + datos.magnesioTotal + datos.otroTotal > 0;
+                const colorBase = tieneMateriaPrima
+                    ? (tieneTerminado ? '#6f42c1' : '#20a779')
+                    : (datos.aluminioTotal > 0 && datos.magnesioTotal > 0 ? '#6f42c1' : (datos.aluminioTotal > 0 ? '#0d6efd' : '#fd7e14'));
                 puestoDiv.style.backgroundColor = colorBase;
                 puestoDiv.style.color = 'white';
-                puestoDiv.innerHTML = `<div style="font-size: 12px; font-weight: bold;">✓ ${posKey}</div><div style="font-size: 10px; opacity: 0.9;">Total: ${cantidad}</div>`;
-                puestoDiv.addEventListener('click', () => mostrarProductosPosicion(posKey));
             } else {
                 puestoDiv.style.backgroundColor = '#ffffff';
-                puestoDiv.style.color = '#6c757d';
-                puestoDiv.style.border = '2px solid #dee2e6';
-                puestoDiv.textContent = posKey;
+                puestoDiv.style.color = '#343a40';
+                puestoDiv.style.border = '2px solid #adb5bd';
             }
-            filaDiv.appendChild(puestoDiv);
+
+            puestoDiv.innerHTML = `
+                <div style="font-size:18px;font-weight:700;">${datos.peligrosa ? '⚠ ' : (estaOcupada ? '✓ ' : '')}${esc(posKey)}</div>
+                ${datos.peligrosa && datos.tituloPeligro ? `<div style="font-size:14px;font-weight:700;margin-top:3px;">${esc(datos.tituloPeligro)}</div>` : ''}
+                <div style="font-size:15px;margin-top:4px;">Total: ${cantidad}</div>
+            `;
+            puestoDiv.setAttribute('aria-label', `${posKey}, total ${cantidad}${datos.peligrosa ? `, peligrosa: ${datos.tituloPeligro}` : ''}`);
+            puestoDiv.addEventListener('click', () => mostrarProductosPosicion(posKey));
+            mapContainer.appendChild(puestoDiv);
         });
-        mapContainer.appendChild(filaDiv);
-    }
 
     const ocupadas = Object.values(mapPosData).filter(d => d.cantidad > 0).length;
     document.getElementById('posOcupadas').textContent = ocupadas;
-    document.getElementById('posDisponibles').textContent = 264 - ocupadas;
+    document.getElementById('posDisponibles').textContent = TOTAL_POSICIONES - ocupadas;
+}
+
+function compararPosiciones(codigoA, codigoB) {
+    const a = codigoA.match(/^(\d+)([A-Z]+)$/);
+    const b = codigoB.match(/^(\d+)([A-Z]+)$/);
+    if (a && b) {
+        return Number(a[1]) - Number(b[1]) || a[2].localeCompare(b[2]);
+    }
+    if (a) return -1;
+    if (b) return 1;
+    return codigoA.localeCompare(codigoB, 'es', { numeric: true });
 }
 
 function mostrarProductosPosicion(posicion) {
     const stock = service.obtenerStockConsolidado().filter(s => s.posicion === posicion);
-    document.getElementById('modalPosicionLabel').innerHTML = `<i class="fa-solid fa-box me-2"></i>Productos en Posición ${esc(posicion)}`;
+    const datosPosicion = service.obtenerMapaPosiciones()[posicion] || {};
+    document.getElementById('modalPosicionLabel').innerHTML = `<i class="fa-solid fa-box me-2"></i>Posición ${esc(posicion)}`;
 
-    let html = '<div class="table-responsive"><table class="table table-hover align-middle"><thead class="table-light"><tr><th>Producto</th><th>Presentación</th><th>Lote</th><th class="text-end">Cantidad</th></tr></thead><tbody>';
+    let html = '<div class="table-responsive"><table class="table table-hover align-middle"><thead class="table-light"><tr><th>Producto</th><th>Presentación</th><th>Lote</th><th>Estado</th><th class="text-end">Cantidad</th></tr></thead><tbody>';
     let total = 0;
 
     stock.forEach(p => {
         total += p.cantidad;
-        html += `<tr><td>${esc(p.producto)}</td><td>${esc(p.presentacion)}</td><td><code>${esc(p.lote)}</code></td><td class="text-end fw-bold text-success">${p.cantidad} un.</td></tr>`;
+        const estado = service.estadosLote.get(service.claveLote(p.producto, p.lote));
+        const aprobado = estado?.estado === 'aprobado';
+        html += `<tr><td>${esc(p.producto)}</td><td>${esc(p.presentacion)}</td><td><code>${esc(p.lote)}</code></td><td><span class="badge" style="background-color:${aprobado ? '#198754' : '#fd7e14'};color:${aprobado ? '#fff' : '#212529'};">${aprobado ? 'Aprobado' : 'Cuarentena'}</span></td><td class="text-end fw-bold text-success">${p.cantidad} un.</td></tr>`;
     });
 
+    if (!stock.length) html += '<tr><td colspan="5" class="text-center text-muted">No hay productos en esta posición.</td></tr>';
     html += `</tbody></table></div><div class="alert alert-info mt-3 mb-0"><strong>Total:</strong> ${total} unidades</div>`;
+    if (datosPosicion.peligrosa) {
+        html += `<div class="alert alert-danger mt-3 mb-0"><strong>⚠ ${esc(datosPosicion.tituloPeligro || 'Posición peligrosa')}</strong></div>`;
+    }
+
+    if (['admin', 'operador'].includes(document.body.dataset.rol)) {
+        html += `
+            <form id="formPeligroPosicion" class="border rounded p-3 mt-3" data-codigo="${esc(posicion)}">
+                <h6 class="fw-bold mb-3">Advertencia de seguridad</h6>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="posicionPeligrosa" ${datosPosicion.peligrosa ? 'checked' : ''}>
+                    <label class="form-check-label fw-semibold" for="posicionPeligrosa">Marcar posición como peligrosa</label>
+                </div>
+                <label class="form-label" for="tituloPeligroPosicion">Título de la advertencia</label>
+                <input class="form-control mb-2" id="tituloPeligroPosicion" maxlength="100" value="${esc(datosPosicion.tituloPeligro || '')}" ${datosPosicion.peligrosa ? 'required' : 'disabled'}>
+                <button class="btn btn-danger btn-sm" type="submit">Guardar advertencia</button>
+            </form>
+        `;
+    }
     document.getElementById('contenidoProductosPosicion').innerHTML = html;
     modalProductos.show();
+}
+
+async function guardarAlertaPeligroPosicion(event) {
+    if (event.target.id !== 'formPeligroPosicion') return;
+    event.preventDefault();
+    const form = event.target;
+    const peligrosa = document.getElementById('posicionPeligrosa').checked;
+    const titulo = document.getElementById('tituloPeligroPosicion').value;
+    try {
+        await service.actualizarPeligroPosicion(form.dataset.codigo, peligrosa, titulo);
+        renderMapaPosiciones();
+        mostrarProductosPosicion(form.dataset.codigo);
+    } catch (error) {
+        alert(`No se pudo guardar la advertencia: ${error.message}`);
+    }
 }
 
 function prepararNuevoRegistro() {
     document.getElementById('inventoryForm').reset();
     document.getElementById('editId').value = '';
+    actualizarProductosPorCategoria(false);
     document.getElementById('modalRegistroLabel').innerHTML = `<i class="fa-solid fa-plus me-2"></i>Nuevo Movimiento`;
     document.getElementById('formFecha').value = new Date().toISOString().split('T')[0];
     actualizarCamposTraslado();
@@ -507,6 +662,9 @@ function editarRegistro(id) {
     document.getElementById('editId').value = item.id;
     document.getElementById('formFecha').value = item.fecha;
     document.getElementById('formMvto').value = item.mvto;
+    const producto = service.catalogos.productos.find(p => p.nombre === item.producto);
+    document.getElementById('formCategoriaProducto').value = producto?.categoria || '';
+    actualizarProductosPorCategoria(false);
     document.getElementById('formPosicion').value = item.posicion;
     document.getElementById('formLote').value = item.lote;
     document.getElementById('formProducto').value = item.producto;
@@ -774,6 +932,7 @@ function exportarExcel() {
     const data = service.movimientos.map(i => ({
         "ID": i.id,
         "Fecha": i.FechaFormateada,
+        "Registrado": i.RegistroFormateado,
         "Movimiento": i.mvto,
         "Posición": i.posicion,
         "Producto": i.producto,
@@ -790,9 +949,9 @@ function exportarExcel() {
 }
 
 function exportarCSV() {
-    let csv = "ID,Fecha,Movimiento,Posicion,Producto,Presentacion,Lote,Cantidad,Observaciones\n";
+    let csv = "ID,Fecha,Registrado,Movimiento,Posicion,Producto,Presentacion,Lote,Cantidad,Observaciones\n";
     service.movimientos.forEach(i => {
-        csv += `"${i.id}","${i.FechaFormateada}","${i.mvto}","${i.posicion}","${i.producto}","${i.presentacion}","${i.lote}",${i.cantidad},"${i.observaciones}"\n`;
+        csv += `"${i.id}","${i.FechaFormateada}","${i.RegistroFormateado}","${i.mvto}","${i.posicion}","${i.producto}","${i.presentacion}","${i.lote}",${i.cantidad},"${i.observaciones}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -809,6 +968,8 @@ function exportarBackupJSON() {
         registros: service.movimientos.map(item => ({
             id: item.id,
             fecha: item.fecha,
+            creadoEn: item.creadoEn,
+            creadoPor: item.creadoPor,
             mvto: item.mvto,
             posicion: item.posicion,
             producto: item.producto,

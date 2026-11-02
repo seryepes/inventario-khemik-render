@@ -11,7 +11,7 @@ backend/
   config.py                Configuración desde variables de entorno
   database.py              Conexión (SQLite o PostgreSQL) y creación de tablas
   models.py                Modelo de datos (tablas)
-  seed.py                  Catálogos iniciales: productos, presentaciones, 264 posiciones
+  seed.py                  Catálogos iniciales: productos, presentaciones, 266 posiciones
   domain.py                Movimiento (formato de la API) y normalización de datos
   repository.py            Consultas a la base
   service.py               Reglas de negocio de inventario
@@ -42,7 +42,8 @@ auditoria (quién hizo qué y cuándo)          ajustes (clave/valor)
 |---|---|
 | `productos` | Catálogo de productos (Aluminio, Magnesio, Otro…). |
 | `presentaciones` | 125 kg, 200 kg, Otra… con su `capacidad_por_ubicacion` (5, 4, sin límite). |
-| `ubicaciones` | Posiciones de la bodega: 44 filas × columnas A–F (`12C`). |
+| `ubicaciones` | Posiciones de la bodega: 44 filas × columnas A–F (`12C`) y dos posiciones de piso. |
+| `estados_lote` | Estado de cada lote de producto, fecha de primer ingreso y cambios manuales. |
 | `movimientos` | Libro de ingresos y salidas. El stock **se calcula** sumando ingresos y restando salidas. |
 | `usuarios` | Cuentas con rol, estado activo, intentos fallidos y último acceso. |
 | `auditoria` | Registro de cada operación: crear, editar, eliminar, importar, restaurar, logins y bloqueos. |
@@ -50,17 +51,20 @@ auditoria (quién hizo qué y cuándo)          ajustes (clave/valor)
 Reglas que aplica el sistema:
 
 - La capacidad de cada posición depende de la presentación.
+- Una ubicación con existencias no admite ingresos de un producto diferente; también se valida en traslados e importaciones.
 - Ningún lote puede quedar con saldo negativo, ni al registrar una salida ni al editar o eliminar un movimiento.
 - Un lote que salió de la bodega no puede volver a ingresar (los traslados internos no cuentan como salida).
+- Los lotes ingresan en cuarentena y pasan automáticamente a aprobado al cumplir 10 días; administradores y operadores pueden establecer manualmente cualquiera de los dos estados mientras el lote tenga existencias.
 - Un traslado son dos movimientos enlazados: no se editan, se eliminan juntos.
 - Producto, presentación y posición deben existir en el catálogo. Las posiciones se normalizan: `c12`, `C12` y `12-c` se guardan como `12C`.
+- Las posiciones peligrosas se resaltan en rojo con un título de advertencia; administradores y operadores pueden activar o quitar esa alerta desde el detalle de la posición.
 
 ## Roles
 
 | Rol | Puede |
 |---|---|
-| `admin` | Todo: usuarios, catálogos, importar Excel, restaurar backup, borrar todo, ver auditoría. |
-| `operador` | Ver, registrar, editar y eliminar movimientos y traslados. |
+| `admin` | Todo: usuarios, catálogos, importar Excel, restaurar backup, borrar todo, ver auditoría, cambiar estados de lotes y marcar posiciones peligrosas. |
+| `operador` | Ver, registrar, editar y eliminar movimientos y traslados; cambiar estados de lotes y marcar posiciones peligrosas. |
 | `consulta` | Solo ver. |
 
 ## Uso local (Windows)
@@ -92,8 +96,10 @@ En el plan gratuito, Render apaga la app tras unos 15 minutos sin uso: la primer
 
 Variables de entorno disponibles: ver [.env.example](.env.example).
 
+El mapa incluye **PISO PLANTA1** y **PISO PLANTA2**. Las materias primas usan un color común en el mapa; una posición peligrosa aparece en rojo con el título de la advertencia. Cada movimiento conserva su fecha y hora de creación, que se muestra en la tabla y queda disponible en los datos de la API. Como la versión anterior no guardaba la hora de registro, al migrar esos movimientos se les asigna la hora de migración, no una hora histórica.
+
 ## API principal
 
-`GET /api/health` · `GET /api/auth/status` · `POST /api/auth/setup` · `POST /api/auth/login` · `POST /api/auth/logout` · `GET|POST /api/auth/users` · `PATCH /api/auth/users/<usuario>` · `GET /api/catalogos` · `POST /api/catalogos/productos` · `POST /api/catalogos/presentaciones` · `GET /api/auditoria` · `GET|POST|DELETE /api/movimientos` · `PUT|DELETE /api/movimientos/<id>` · `POST /api/traslados` · `GET /api/stock` · `GET /api/estadisticas` · `GET /api/posiciones` · `POST /api/importar` · `POST /api/restaurar`
+`GET /api/health` · `GET /api/auth/status` · `POST /api/auth/setup` · `POST /api/auth/login` · `POST /api/auth/logout` · `GET|POST /api/auth/users` · `PATCH /api/auth/users/<usuario>` · `GET /api/catalogos` · `POST /api/catalogos/productos` · `POST /api/catalogos/presentaciones` · `GET /api/auditoria` · `GET|POST|DELETE /api/movimientos` · `PUT|DELETE /api/movimientos/<id>` · `POST /api/traslados` · `GET /api/stock` · `GET /api/estadisticas` · `GET /api/posiciones` · `PATCH /api/posiciones/<codigo>/peligro` · `GET /api/lotes/estados` · `PATCH /api/lotes/estado` · `POST /api/importar` · `POST /api/restaurar`
 
 Toda petición que modifica datos debe incluir el encabezado `X-Khemik-Request: 1` (protección CSRF); el frontend lo envía automáticamente.

@@ -18,6 +18,7 @@ class ApiTests(unittest.TestCase):
         self.client = self.app.test_client()
 
     def tearDown(self):
+        self.app.extensions["khemik"]["inventario"]._session_factory.kw["bind"].dispose()
         self.temp_dir.cleanup()
 
     def post(self, url, json=None, client=None):
@@ -62,6 +63,63 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.post("/api/movimientos", self.movimiento(), consulta).status_code, 403)
         self.assertEqual(self.client.delete("/api/movimientos", headers=CSRF).status_code, 200)
 
+    def test_admin_y_operador_pueden_marcar_posicion_peligrosa(self):
+        self.setup_admin()
+        ruta = "/api/posiciones/PISO%20PLANTA1/peligro"
+        response = self.client.patch(
+            ruta, json={"peligrosa": True, "titulo": "Químicos corrosivos"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["tituloPeligro"], "Químicos corrosivos")
+
+        operador = self.crear_y_entrar("operador", "operador")
+        response = operador.patch(
+            ruta, json={"peligrosa": True, "titulo": "Riesgo eléctrico"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 200)
+        mapa = operador.get("/api/posiciones").json
+        self.assertTrue(mapa["PISO PLANTA1"]["peligrosa"])
+
+        consulta = self.crear_y_entrar("consulta", "consulta")
+        response = consulta.patch(
+            ruta, json={"peligrosa": False, "titulo": ""}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_y_operador_pueden_modificar_estado_de_lote(self):
+        self.setup_admin()
+        self.assertEqual(self.post("/api/movimientos", self.movimiento()).status_code, 201)
+        ruta = "/api/lotes/estado"
+        response = self.client.patch(
+            ruta, json={"producto": "Aluminio", "lote": "L-1", "estado": "aprobado"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["estado"], "aprobado")
+        self.assertTrue(response.json["manual"])
+
+        operador = self.crear_y_entrar("operador", "operador")
+        response = operador.patch(
+            ruta, json={"producto": "Aluminio", "lote": "L-1", "estado": "cuarentena"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(operador.get("/api/lotes/estados").json[0]["estado"], "cuarentena")
+
+        consulta = self.crear_y_entrar("consulta", "consulta")
+        response = consulta.patch(
+            ruta, json={"producto": "Aluminio", "lote": "L-1", "estado": "aprobado"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_posicion_peligrosa_exige_titulo(self):
+        self.setup_admin()
+        response = self.client.patch(
+            "/api/posiciones/1A/peligro",
+            json={"peligrosa": True, "titulo": ""},
+            headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("título", response.json["error"])
+
     def test_desactivar_usuario_cierra_su_sesion(self):
         self.setup_admin()
         operador = self.crear_y_entrar("operador", "operador")
@@ -92,6 +150,36 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Stock insuficiente", response.json["error"])
         self.assertEqual(self.client.get("/api/no-existe").status_code, 404)
+
+    def test_crear_producto_exige_categoria_y_la_publica_en_catalogo(self):
+        self.setup_admin()
+        sin_categoria = self.post("/api/catalogos/productos", {"nombre": "Cobre"})
+        self.assertEqual(sin_categoria.status_code, 400)
+
+        creado = self.post("/api/catalogos/productos", {
+            "nombre": "Cobre",
+            "categoria": "materia_prima",
+        })
+        self.assertEqual(creado.status_code, 201)
+        self.assertEqual(creado.json["categoria"], "materia_prima")
+        catalogo = self.client.get("/api/catalogos").json
+        cobre = next(p for p in catalogo["productos"] if p["nombre"] == "Cobre")
+        self.assertEqual(cobre["categoria"], "materia_prima")
+
+    def test_movimiento_guarda_y_conserva_fecha_hora_de_creacion(self):
+        self.setup_admin()
+        response = self.post("/api/movimientos", self.movimiento(posicion="PISO PLANTA1"))
+
+        self.assertEqual(response.status_code, 201)
+        creado_en = response.json["creadoEn"]
+        response = self.client.put(
+            f"/api/movimientos/{response.json['id']}",
+            json={**self.movimiento(posicion="PISO PLANTA1", cantidad=2), "id": response.json["id"]},
+            headers=CSRF,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["creadoEn"], creado_en)
 
     def test_solo_se_publica_la_carpeta_frontend(self):
         with self.client.get("/js/servicio.js") as response:

@@ -4,7 +4,7 @@ import re
 import secrets
 import uuid
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterator, Optional
 
 from sqlalchemy import text
@@ -37,6 +37,49 @@ class ServicioBase:
 
 class InventarioService(ServicioBase):
 
+    @staticmethod
+    def _utc_datetime(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    @classmethod
+    def _estado_automatico(cls, primer_ingreso_en: datetime) -> str:
+        primer_ingreso_en = cls._utc_datetime(primer_ingreso_en)
+        return "aprobado" if m.ahora() >= primer_ingreso_en + timedelta(days=10) else "cuarentena"
+
+    @classmethod
+    def _asegurar_estado_lote(
+        cls, repo: InventarioRepository, producto: m.Producto, lote: str,
+    ) -> m.EstadoLote:
+        estado = repo.estado_lote(producto.id, lote, bloquear=True)
+        if estado is not None:
+            return estado
+        primer_ingreso_en = repo.primer_ingreso_lote(producto.id, lote) or m.ahora()
+        estado = repo.agregar(m.EstadoLote(
+            producto_id=producto.id,
+            lote=lote,
+            estado=cls._estado_automatico(primer_ingreso_en),
+            primer_ingreso_en=primer_ingreso_en,
+            manual=False,
+            actualizado_en=m.ahora(),
+        ))
+        return estado
+
+    @classmethod
+    def _serializar_estado_lote(
+        cls, estado: m.EstadoLote, producto: str, categoria: str,
+    ) -> dict[str, Any]:
+        primer_ingreso = cls._utc_datetime(estado.primer_ingreso_en)
+        return {
+            "producto": producto,
+            "categoria": categoria,
+            "lote": estado.lote,
+            "estado": estado.estado,
+            "primerIngresoEn": primer_ingreso.isoformat(),
+            "manual": estado.manual,
+        }
+
     # --- Conversión ------------------------------------------------------
 
     @staticmethod
@@ -48,7 +91,11 @@ class InventarioService(ServicioBase):
             lote=fila.lote, cantidad=fila.cantidad, observaciones=fila.observaciones,
             traslado_id=fila.traslado_id,
             creado_por=fila.creado_por.username if fila.creado_por else "",
-            creado_en=fila.creado_en.isoformat() if fila.creado_en else "",
+            creado_en=(
+                fila.creado_en.replace(tzinfo=timezone.utc)
+                if fila.creado_en and fila.creado_en.tzinfo is None
+                else fila.creado_en
+            ).isoformat() if fila.creado_en else "",
         )
 
     @staticmethod
@@ -84,10 +131,11 @@ class InventarioService(ServicioBase):
         # Bloquear la fila del producto serializa las escrituras concurrentes de ese producto
         # (en PostgreSQL); así dos usuarios no pueden sacar el mismo stock a la vez.
         producto = repo.producto_por_nombre(mov.producto, bloquear=bloquear)
-        if producto is None and crear_faltantes:
-            producto = repo.agregar(m.Producto(nombre=mov.producto[:60]))
         if producto is None or not producto.activo:
-            raise ValueError(f"El producto '{mov.producto}' no está registrado en el catálogo.")
+            raise ValueError(
+                f"El producto '{mov.producto}' no está registrado en el catálogo. "
+                "Un administrador debe crearlo y asignarle una categoría."
+            )
         presentacion = repo.presentacion_por_nombre(mov.presentacion)
         if presentacion is None and crear_faltantes:
             presentacion = repo.agregar(m.Presentacion(nombre=mov.presentacion[:30]))
@@ -129,7 +177,20 @@ class InventarioService(ServicioBase):
             return
         if mov.lote != "-" and repo.lote_tiene_salida(mov.lote, producto.id, presentacion.id, mov.id):
             raise ValueError(f"El lote {mov.lote} ya registró una salida y no puede volver a ingresar.")
+        self._validar_ocupacion(repo, producto, ubicacion, mov.id)
         self._validar_capacidad(repo, mov.cantidad, presentacion, ubicacion, mov.id)
+
+    @staticmethod
+    def _validar_ocupacion(repo: InventarioRepository, producto: m.Producto,
+                           ubicacion: Optional[m.Ubicacion], excluir_id: Optional[int] = None) -> None:
+        if ubicacion is None:
+            return
+        for nombre, cantidad in repo.productos_con_stock_en_ubicacion(ubicacion.id, excluir_id):
+            if cantidad > 0 and nombre.casefold() != producto.nombre.casefold():
+                raise ValueError(
+                    f"La ubicación {ubicacion.codigo} está ocupada por {nombre}; "
+                    f"no se puede ubicar {producto.nombre} allí."
+                )
 
     @staticmethod
     def _verificar_saldos(repo: InventarioRepository, claves: dict[Clave, str]) -> None:
@@ -167,6 +228,12 @@ class InventarioService(ServicioBase):
 
         producto, presentacion, ubicacion = self._resolver(repo, mov)
         self._validar_reglas(repo, mov, producto, presentacion, ubicacion)
+        nuevo_movimiento = fila is None
+        saldo_sin_lote_antes = (
+            repo.saldo_producto_lote(producto.id, mov.lote)
+            if nuevo_movimiento and mov.mvto == "Ingreso" and mov.lote == "-"
+            else 0
+        )
 
         if fila is None:
             fila = repo.agregar(self._nueva_fila(mov, mov.mvto, producto, presentacion, ubicacion, usuario_id))
@@ -177,6 +244,25 @@ class InventarioService(ServicioBase):
             fila.lote, fila.cantidad, fila.observaciones = mov.lote, mov.cantidad, mov.observaciones
             fila.actualizado_por_id, fila.actualizado_en = usuario_id, m.ahora()
             repo.session.flush()
+        if mov.mvto == "Ingreso":
+            if nuevo_movimiento and mov.lote == "-" and saldo_sin_lote_antes == 0:
+                estado_existente = repo.estado_lote(producto.id, mov.lote, bloquear=True)
+                if estado_existente is None:
+                    repo.agregar(m.EstadoLote(
+                        producto_id=producto.id,
+                        lote=mov.lote,
+                        estado="cuarentena",
+                        primer_ingreso_en=fila.creado_en or m.ahora(),
+                        manual=False,
+                        actualizado_en=m.ahora(),
+                    ))
+                else:
+                    estado_existente.estado = "cuarentena"
+                    estado_existente.primer_ingreso_en = fila.creado_en or m.ahora()
+                    estado_existente.manual = False
+                    estado_existente.actualizado_en = m.ahora()
+            else:
+                self._asegurar_estado_lote(repo, producto, mov.lote)
         claves[self._clave(fila)] = ubicacion.codigo if ubicacion else SIN_UBICAR
         self._verificar_saldos(repo, claves)
         return fila
@@ -213,6 +299,7 @@ class InventarioService(ServicioBase):
             disponible = repo.saldo_lote(origen.id, producto.id, presentacion.id, mov.lote)
             if mov.cantidad > disponible:
                 raise ValueError(f"Stock insuficiente para trasladar. Disponible en {origen.codigo}: {disponible}.")
+            self._validar_ocupacion(repo, producto, destino)
             self._validar_capacidad(repo, mov.cantidad, presentacion, destino)
             traslado_id = f"TR-{uuid.uuid4().hex[:12]}"
             observaciones = mov.observaciones or f"Traslado de {origen.codigo} a {destino.codigo}"
@@ -220,6 +307,7 @@ class InventarioService(ServicioBase):
                 repo.agregar(self._nueva_fila(mov, tipo, producto, presentacion, ubicacion, usuario_id, traslado_id, observaciones))
                 for tipo, ubicacion in (("Salida", origen), ("Ingreso", destino))
             ]
+            self._asegurar_estado_lote(repo, producto, mov.lote)
             repo.registrar_auditoria(usuario_id, "traslado.crear", f"{traslado_id}: " + "; ".join(map(self._describir, filas)))
             return [self._a_dominio(fila).to_dict() for fila in filas]
 
@@ -238,6 +326,7 @@ class InventarioService(ServicioBase):
 
     def borrar_todo(self, usuario_id: Optional[int]) -> int:
         with self.transaccion() as repo:
+            repo.borrar_estados_lote()
             borrados = repo.borrar_movimientos()
             repo.registrar_auditoria(usuario_id, "movimientos.borrar_todo", f"{borrados} movimientos eliminados")
             return borrados
@@ -285,7 +374,7 @@ class InventarioService(ServicioBase):
         }
 
     def restaurar(self, registros: Any, usuario_id: Optional[int]) -> dict[str, Any]:
-        """Reemplaza todos los movimientos por los de un backup. Crea en el catálogo lo que falte."""
+        """Reemplaza movimientos; los productos deben existir para conservar su categoría asignada."""
         registros = self._validar_lista(registros)
         validos, errores = [], []
         for numero, data in enumerate(registros, 1):
@@ -299,10 +388,13 @@ class InventarioService(ServicioBase):
             raise ValueError("El backup no contiene registros válidos. " + " ".join(errores[:3]))
 
         with self.transaccion() as repo:
+            repo.borrar_estados_lote()
             borrados = repo.borrar_movimientos()
             for _id, _numero, mov in sorted(validos, key=lambda item: item[:2]):
                 producto, presentacion, ubicacion = self._resolver(repo, mov, bloquear=False, crear_faltantes=True)
                 repo.agregar(self._nueva_fila(mov, mov.mvto, producto, presentacion, ubicacion, usuario_id, mov.traslado_id))
+                if mov.mvto == "Ingreso":
+                    self._asegurar_estado_lote(repo, producto, mov.lote)
             repo.registrar_auditoria(
                 usuario_id, "movimientos.restaurar",
                 f"{borrados} reemplazados por {len(validos)} del backup; {len(errores)} rechazados",
@@ -312,9 +404,9 @@ class InventarioService(ServicioBase):
     def stock(self) -> list[dict[str, Any]]:
         with self.transaccion() as repo:
             return [
-                {"posicion": posicion or SIN_UBICAR, "producto": producto, "presentacion": presentacion,
-                 "lote": lote, "cantidad": int(saldo)}
-                for posicion, producto, presentacion, lote, saldo in repo.stock()
+                {"posicion": posicion or SIN_UBICAR, "producto": producto, "categoria": categoria,
+                 "presentacion": presentacion, "lote": lote, "cantidad": int(saldo)}
+                for posicion, producto, categoria, presentacion, lote, saldo in repo.stock()
             ]
 
     def estadisticas(self) -> dict[str, dict[str, int]]:
@@ -327,22 +419,131 @@ class InventarioService(ServicioBase):
         return result
 
     def mapa_posiciones(self) -> dict[str, dict[str, Any]]:
-        result: dict[str, dict[str, Any]] = {}
-        for row in self.stock():
-            if row["posicion"] == SIN_UBICAR:
-                continue
-            item = result.setdefault(row["posicion"], {"cantidad": 0, "aluminioTotal": 0, "magnesioTotal": 0, "otroTotal": 0})
-            item["cantidad"] += row["cantidad"]
-            clave = {"Aluminio": "aluminioTotal", "Magnesio": "magnesioTotal"}.get(row["producto"], "otroTotal")
-            item[clave] += row["cantidad"]
+        with self.transaccion() as repo:
+            result = {
+                ubicacion.codigo: {
+                    "cantidad": 0,
+                    "aluminioTotal": 0,
+                    "magnesioTotal": 0,
+                    "materiaPrimaTotal": 0,
+                    "otroTotal": 0,
+                    "peligrosa": ubicacion.peligrosa,
+                    "tituloPeligro": ubicacion.titulo_peligro or "",
+                }
+                for ubicacion in repo.listar_ubicaciones()
+            }
+            for posicion, producto, categoria, _presentacion, _lote, saldo in repo.stock():
+                if posicion is None:
+                    continue
+                item = result.setdefault(posicion, {
+                    "cantidad": 0,
+                    "aluminioTotal": 0,
+                    "magnesioTotal": 0,
+                    "materiaPrimaTotal": 0,
+                    "otroTotal": 0,
+                    "peligrosa": False,
+                    "tituloPeligro": "",
+                })
+                cantidad = int(saldo)
+                item["cantidad"] += cantidad
+                if categoria == "materia_prima":
+                    item["materiaPrimaTotal"] += cantidad
+                elif producto == "Aluminio":
+                    item["aluminioTotal"] += cantidad
+                elif producto == "Magnesio":
+                    item["magnesioTotal"] += cantidad
+                else:
+                    item["otroTotal"] += cantidad
         return result
+
+    def estados_lotes(self) -> list[dict[str, Any]]:
+        with self.transaccion() as repo:
+            estados = []
+            ahora = m.ahora()
+            for producto_id, producto, categoria, lote, _saldo in repo.lotes_con_stock():
+                producto_modelo = repo.producto_por_id(producto_id, bloquear=True)
+                if producto_modelo is None:
+                    continue
+                estado = repo.estado_lote(producto_id, lote, bloquear=True)
+                if estado is None:
+                    estado = self._asegurar_estado_lote(repo, producto_modelo, lote)
+                primer_ingreso = self._utc_datetime(estado.primer_ingreso_en)
+                if not estado.manual and estado.estado == "cuarentena" and ahora >= primer_ingreso + timedelta(days=10):
+                    estado.estado = "aprobado"
+                    estado.actualizado_en = ahora
+                    repo.registrar_auditoria(
+                        None,
+                        "lote.aprobacion_automatica",
+                        f"{producto} lote {lote}: cuarentena a aprobado al cumplir 10 días",
+                    )
+                estados.append(self._serializar_estado_lote(estado, producto, categoria))
+            return estados
+
+    def actualizar_estado_lote(
+        self, producto_nombre: Any, lote: Any, nuevo_estado: Any, usuario_id: Optional[int],
+    ) -> dict[str, Any]:
+        producto_nombre = self._validar_nombre(producto_nombre, 60)
+        lote = self._validar_nombre(lote, 60).upper()
+        nuevo_estado = str(nuevo_estado or "").strip().lower()
+        if nuevo_estado not in ("cuarentena", "aprobado"):
+            raise ValueError("El estado debe ser Cuarentena o Aprobado.")
+        with self.transaccion() as repo:
+            producto = repo.producto_por_nombre(producto_nombre, bloquear=True)
+            if producto is None:
+                raise LookupError(f"El producto '{producto_nombre}' no existe.")
+            if repo.saldo_producto_lote(producto.id, lote) <= 0:
+                raise ValueError(f"El lote {lote} no tiene existencias activas.")
+            estado = self._asegurar_estado_lote(repo, producto, lote)
+            estado.estado = nuevo_estado
+            estado.manual = True
+            estado.actualizado_en = m.ahora()
+            repo.registrar_auditoria(
+                usuario_id, "lote.estado",
+                f"{producto.nombre} lote {lote}: estado manual {nuevo_estado}",
+            )
+            return self._serializar_estado_lote(estado, producto.nombre, producto.categoria)
+
+    def actualizar_peligro_posicion(
+        self, codigo: Any, peligrosa: Any, titulo: Any, usuario_id: Optional[int],
+    ) -> dict[str, Any]:
+        codigo = str(codigo or "").strip().upper()
+        if not codigo or len(codigo) > 20:
+            raise ValueError("La posición indicada no es válida.")
+        if not isinstance(peligrosa, bool):
+            raise ValueError("El estado de peligro debe ser verdadero o falso.")
+        titulo = " ".join(str(titulo or "").split())
+        if peligrosa and not titulo:
+            raise ValueError("Escribe un título de advertencia para marcar la posición como peligrosa.")
+        if len(titulo) > 100:
+            raise ValueError("El título de advertencia no puede superar 100 caracteres.")
+        if not peligrosa:
+            titulo = ""
+        with self.transaccion() as repo:
+            ubicacion = repo.ubicacion_por_codigo(codigo)
+            if ubicacion is None or not ubicacion.activo:
+                raise LookupError(f"La posición '{codigo}' no existe.")
+            ubicacion.peligrosa = peligrosa
+            ubicacion.titulo_peligro = titulo or None
+            repo.registrar_auditoria(
+                usuario_id,
+                "posicion.peligro",
+                f"{codigo}: {'Peligrosa - ' + titulo if peligrosa else 'Advertencia retirada'}",
+            )
+            return {
+                "codigo": ubicacion.codigo,
+                "peligrosa": ubicacion.peligrosa,
+                "tituloPeligro": ubicacion.titulo_peligro or "",
+            }
 
     # --- Catálogos ---------------------------------------------------------
 
     def catalogos(self) -> dict[str, Any]:
         with self.transaccion() as repo:
             return {
-                "productos": [{"nombre": p.nombre, "activo": p.activo} for p in repo.listar_productos()],
+                "productos": [
+                    {"nombre": p.nombre, "categoria": p.categoria, "activo": p.activo}
+                    for p in repo.listar_productos()
+                ],
                 "presentaciones": [
                     {"nombre": p.nombre, "capacidad": p.capacidad_por_ubicacion, "activo": p.activo}
                     for p in repo.listar_presentaciones()
@@ -357,14 +558,17 @@ class InventarioService(ServicioBase):
             raise ValueError(f"El nombre debe tener entre 1 y {maximo} caracteres.")
         return limpio
 
-    def crear_producto(self, nombre: Any, usuario_id: Optional[int]) -> dict[str, Any]:
+    def crear_producto(self, nombre: Any, categoria: Any, usuario_id: Optional[int]) -> dict[str, Any]:
         nombre = self._validar_nombre(nombre, 60)
+        categoria = str(categoria or "").strip()
+        if categoria not in m.CATEGORIAS_PRODUCTO:
+            raise ValueError("La categoría debe ser Producto terminado o Materia prima.")
         with self.transaccion() as repo:
             if repo.producto_por_nombre(nombre):
                 raise ConflictoError(f"El producto '{nombre}' ya existe.")
-            repo.agregar(m.Producto(nombre=nombre))
-            repo.registrar_auditoria(usuario_id, "catalogo.producto", f"Producto creado: {nombre}")
-        return {"nombre": nombre, "activo": True}
+            repo.agregar(m.Producto(nombre=nombre, categoria=categoria))
+            repo.registrar_auditoria(usuario_id, "catalogo.producto", f"Producto creado: {nombre} ({categoria})")
+        return {"nombre": nombre, "categoria": categoria, "activo": True}
 
     def crear_presentacion(self, nombre: Any, capacidad: Any, usuario_id: Optional[int]) -> dict[str, Any]:
         nombre = self._validar_nombre(nombre, 30)

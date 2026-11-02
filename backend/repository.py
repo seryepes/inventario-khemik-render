@@ -34,6 +34,10 @@ class InventarioRepository:
         query = select(m.Producto).where(func.lower(m.Producto.nombre) == nombre.strip().lower())
         return self.session.scalar(self._bloquear(query, bloquear))
 
+    def producto_por_id(self, producto_id: int, bloquear: bool = False) -> Optional[m.Producto]:
+        query = select(m.Producto).where(m.Producto.id == producto_id)
+        return self.session.scalar(self._bloquear(query, bloquear))
+
     def presentacion_por_nombre(self, nombre: str) -> Optional[m.Presentacion]:
         query = select(m.Presentacion).where(func.lower(m.Presentacion.nombre) == nombre.strip().lower())
         return self.session.scalar(query)
@@ -42,16 +46,23 @@ class InventarioRepository:
         query = select(m.Ubicacion).where(m.Ubicacion.codigo == codigo)
         return self.session.scalar(self._bloquear(query, bloquear))
 
-    def listar_productos(self) -> list[m.Producto]:
-        return list(self.session.scalars(select(m.Producto).order_by(m.Producto.id)))
-
-    def listar_presentaciones(self) -> list[m.Presentacion]:
-        return list(self.session.scalars(select(m.Presentacion).order_by(m.Presentacion.id)))
+    def estado_lote(self, producto_id: int, lote: str, bloquear: bool = False) -> Optional[m.EstadoLote]:
+        query = select(m.EstadoLote).where(
+            m.EstadoLote.producto_id == producto_id,
+            m.EstadoLote.lote == lote,
+        )
+        return self.session.scalar(self._bloquear(query, bloquear))
 
     def listar_ubicaciones(self) -> list[m.Ubicacion]:
         return list(self.session.scalars(
             select(m.Ubicacion).where(m.Ubicacion.activo.is_(True)).order_by(m.Ubicacion.fila, m.Ubicacion.columna)
         ))
+
+    def listar_productos(self) -> list[m.Producto]:
+        return list(self.session.scalars(select(m.Producto).order_by(m.Producto.id)))
+
+    def listar_presentaciones(self) -> list[m.Presentacion]:
+        return list(self.session.scalars(select(m.Presentacion).order_by(m.Presentacion.id)))
 
     def agregar(self, entidad: Any) -> Any:
         self.session.add(entidad)
@@ -77,6 +88,9 @@ class InventarioRepository:
     def borrar_movimientos(self) -> int:
         return self.session.execute(delete(m.Movimiento)).rowcount or 0
 
+    def borrar_estados_lote(self) -> int:
+        return self.session.execute(delete(m.EstadoLote)).rowcount or 0
+
     def contar_movimientos(self) -> int:
         return self.session.scalar(select(func.count(m.Movimiento.id))) or 0
 
@@ -88,6 +102,21 @@ class InventarioRepository:
             query = query.where(m.Movimiento.id != excluir_id)
         return int(self.session.scalar(query) or 0)
 
+    def productos_con_stock_en_ubicacion(
+        self, ubicacion_id: int, excluir_id: Optional[int] = None,
+    ) -> list[tuple[str, int]]:
+        query = (
+            select(m.Producto.nombre, SALDO)
+            .select_from(m.Movimiento)
+            .join(m.Producto, m.Movimiento.producto_id == m.Producto.id)
+            .where(m.Movimiento.ubicacion_id == ubicacion_id)
+            .group_by(m.Producto.id, m.Producto.nombre)
+            .having(SALDO > 0)
+        )
+        if excluir_id is not None:
+            query = query.where(m.Movimiento.id != excluir_id)
+        return [(nombre, int(cantidad)) for nombre, cantidad in self.session.execute(query)]
+
     def saldo_lote(self, ubicacion_id: Optional[int], producto_id: int, presentacion_id: int, lote: str) -> int:
         ubicacion = (m.Movimiento.ubicacion_id.is_(None) if ubicacion_id is None
                      else m.Movimiento.ubicacion_id == ubicacion_id)
@@ -96,6 +125,32 @@ class InventarioRepository:
             m.Movimiento.presentacion_id == presentacion_id, m.Movimiento.lote == lote,
         )
         return int(self.session.scalar(query) or 0)
+
+    def saldo_producto_lote(self, producto_id: int, lote: str) -> int:
+        query = select(SALDO).where(
+            m.Movimiento.producto_id == producto_id,
+            m.Movimiento.lote == lote,
+        )
+        return int(self.session.scalar(query) or 0)
+
+    def primer_ingreso_lote(self, producto_id: int, lote: str):
+        query = select(func.min(m.Movimiento.creado_en)).where(
+            m.Movimiento.producto_id == producto_id,
+            m.Movimiento.lote == lote,
+            m.Movimiento.tipo == "Ingreso",
+        )
+        return self.session.scalar(query)
+
+    def lotes_con_stock(self) -> list[Any]:
+        query = (
+            select(m.Producto.id, m.Producto.nombre, m.Producto.categoria, m.Movimiento.lote, SALDO.label("saldo"))
+            .select_from(m.Movimiento)
+            .join(m.Producto, m.Movimiento.producto_id == m.Producto.id)
+            .group_by(m.Producto.id, m.Producto.nombre, m.Producto.categoria, m.Movimiento.lote)
+            .having(SALDO > 0)
+            .order_by(m.Producto.nombre, m.Movimiento.lote)
+        )
+        return list(self.session.execute(query))
 
     def lote_tiene_salida(self, lote: str, producto_id: int, presentacion_id: int, excluir_id: Optional[int]) -> bool:
         """¿El lote ya salió de la bodega? Las salidas internas de un traslado no cuentan."""
@@ -110,12 +165,18 @@ class InventarioRepository:
 
     def stock(self) -> list[Any]:
         query = (
-            select(m.Ubicacion.codigo, m.Producto.nombre, m.Presentacion.nombre, m.Movimiento.lote, SALDO.label("saldo"))
+            select(
+                m.Ubicacion.codigo, m.Producto.nombre, m.Producto.categoria,
+                m.Presentacion.nombre, m.Movimiento.lote, SALDO.label("saldo"),
+            )
             .select_from(m.Movimiento)
             .join(m.Producto, m.Movimiento.producto_id == m.Producto.id)
             .join(m.Presentacion, m.Movimiento.presentacion_id == m.Presentacion.id)
             .outerjoin(m.Ubicacion, m.Movimiento.ubicacion_id == m.Ubicacion.id)
-            .group_by(m.Ubicacion.codigo, m.Producto.nombre, m.Presentacion.nombre, m.Movimiento.lote)
+            .group_by(
+                m.Ubicacion.codigo, m.Producto.nombre, m.Producto.categoria,
+                m.Presentacion.nombre, m.Movimiento.lote,
+            )
             .having(SALDO > 0)
             .order_by(m.Ubicacion.codigo, m.Producto.nombre)
         )

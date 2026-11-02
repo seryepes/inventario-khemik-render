@@ -21,6 +21,8 @@ async function request(path, options = {}) {
 export class InventarioService {
     constructor() {
         this.movimientos = [];
+        this.mapaPosiciones = {};
+        this.estadosLote = new Map();
         this.catalogos = { productos: [], presentaciones: [], ubicaciones: [] };
     }
 
@@ -29,8 +31,8 @@ export class InventarioService {
         return this.catalogos;
     }
 
-    async crearProducto(nombre) {
-        await request('/catalogos/productos', { method: 'POST', body: JSON.stringify({ nombre }) });
+    async crearProducto(nombre, categoria) {
+        await request('/catalogos/productos', { method: 'POST', body: JSON.stringify({ nombre, categoria }) });
         return this.cargarCatalogos();
     }
 
@@ -73,9 +75,43 @@ export class InventarioService {
     }
 
     async cargarDatos() {
-        const data = await request('/movimientos');
+        const [data, mapaPosiciones] = await Promise.all([
+            request('/movimientos'),
+            request('/posiciones')
+        ]);
         this.movimientos = data.map(item => new Movimiento(item));
+        this.mapaPosiciones = mapaPosiciones;
+        await this.cargarEstadosLotes();
         return this.movimientos;
+    }
+
+    async cargarEstadosLotes() {
+        const estados = await request('/lotes/estados');
+        this.estadosLote = new Map(estados.map(item => [
+            this.claveLote(item.producto, item.lote),
+            item
+        ]));
+        return this.estadosLote;
+    }
+
+    claveLote(producto, lote) {
+        return JSON.stringify([producto, lote]);
+    }
+
+    async actualizarEstadoLote(producto, lote, estado) {
+        await request('/lotes/estado', {
+            method: 'PATCH',
+            body: JSON.stringify({ producto, lote, estado })
+        });
+        await this.cargarEstadosLotes();
+    }
+
+    async actualizarPeligroPosicion(codigo, peligrosa, titulo) {
+        await request(`/posiciones/${encodeURIComponent(codigo)}/peligro`, {
+            method: 'PATCH',
+            body: JSON.stringify({ peligrosa, titulo })
+        });
+        await this.cargarDatos();
     }
 
     async guardarMovimiento(datos) {
@@ -135,10 +171,19 @@ export class InventarioService {
 
     obtenerStockConsolidado() {
         const stockMap = {};
+        const categorias = new Map(this.catalogos.productos.map(producto => [producto.nombre, producto.categoria]));
         this.movimientos.forEach(item => {
             if (item.Factor === 0) return;
             const key = `${item.posicion}||${item.producto}||${item.presentacion}||${item.lote}`;
-            stockMap[key] ||= { posicion: item.posicion, producto: item.producto, presentacion: item.presentacion, lote: item.lote, cantidad: 0 };
+            stockMap[key] ||= {
+                posicion: item.posicion,
+                producto: item.producto,
+                categoria: categorias.get(item.producto),
+                estadoLote: this.estadosLote.get(this.claveLote(item.producto, item.lote)),
+                presentacion: item.presentacion,
+                lote: item.lote,
+                cantidad: 0
+            };
             stockMap[key].cantidad += item.cantidad * item.Factor;
         });
         return Object.values(stockMap).filter(item => item.cantidad > 0);
@@ -158,17 +203,6 @@ export class InventarioService {
     }
 
     obtenerMapaPosiciones() {
-        const posiciones = {};
-        this.movimientos.forEach(item => {
-            if (!item.posicion || item.posicion.toUpperCase() === 'SIN UBICAR' || item.Factor === 0) return;
-            posiciones[item.posicion] ||= { cantidad: 0, aluminioTotal: 0, magnesioTotal: 0, otroTotal: 0 };
-            const cantidad = item.cantidad * item.Factor;
-            const posicion = posiciones[item.posicion];
-            posicion.cantidad += cantidad;
-            if (item.producto === 'Aluminio') posicion.aluminioTotal += cantidad;
-            else if (item.producto === 'Magnesio') posicion.magnesioTotal += cantidad;
-            else posicion.otroTotal += cantidad;
-        });
-        return posiciones;
+        return this.mapaPosiciones;
     }
 }

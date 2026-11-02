@@ -12,6 +12,7 @@ from .database import Base
 
 ROLES = ("admin", "operador", "consulta")
 TIPOS_MOVIMIENTO = ("Ingreso", "Salida", "Sin ubicar")
+CATEGORIAS_PRODUCTO = ("producto_terminado", "materia_prima")
 
 
 def ahora() -> datetime:
@@ -20,9 +21,13 @@ def ahora() -> datetime:
 
 class Producto(Base):
     __tablename__ = "productos"
+    __table_args__ = (
+        CheckConstraint(f"categoria IN {CATEGORIAS_PRODUCTO}", name="ck_producto_categoria"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(60), unique=True)
+    categoria: Mapped[str] = mapped_column(String(30))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
 
@@ -51,6 +56,24 @@ class Ubicacion(Base):
     fila: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     columna: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    peligrosa: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    titulo_peligro: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+
+class EstadoLote(Base):
+    __tablename__ = "estados_lote"
+    __table_args__ = (
+        CheckConstraint("estado IN ('cuarentena', 'aprobado')", name="ck_estado_lote_estado"),
+        UniqueConstraint("producto_id", "lote", name="uq_estado_lote_producto_lote"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    producto_id: Mapped[int] = mapped_column(ForeignKey("productos.id", ondelete="RESTRICT"))
+    lote: Mapped[str] = mapped_column(String(60))
+    estado: Mapped[str] = mapped_column(String(20), default="cuarentena")
+    primer_ingreso_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    manual: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
 
 
 class Usuario(Base):
