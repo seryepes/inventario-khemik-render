@@ -212,6 +212,7 @@
                                 <tr>
                                     <th>ID</th>
                                     <th>Fecha</th>
+                                    <th>Registrado</th>
                                     <th>Mvto</th>
                                     <th>Posición</th>
                                     <th>Producto</th>
@@ -225,7 +226,7 @@
                             <tbody id="tableBody"></tbody>
                             <tfoot>
                                 <tr class="table-light">
-                                    <th colspan="7" class="text-end">Suma de cantidad (página actual):</th>
+                                    <th colspan="8" class="text-end">Suma de cantidad (página actual):</th>
                                     <th class="fw-bold text-primary" id="totalCantidadPagina">0</th>
                                     <th colspan="2"></th>
                                 </tr>
@@ -372,11 +373,11 @@
                             </div>
                             <div class="col-md-6">
                                 <label for="formPosicion" class="form-label fw-semibold">Posición</label>
-                                <input type="text" class="form-control" id="formPosicion" required>
+                                <input type="text" class="form-control" id="formPosicion" list="posicionesEspeciales" required>
                             </div>
                             <div class="col-md-6 d-none" id="destinoGroup">
                                 <label for="formPosicionDestino" class="form-label fw-semibold">Posición destino</label>
-                                <input type="text" class="form-control" id="formPosicionDestino">
+                                <input type="text" class="form-control" id="formPosicionDestino" list="posicionesEspeciales">
                             </div>
                             <div class="col-md-6">
                                 <label for="formLote" class="form-label fw-semibold">Lote</label>
@@ -408,6 +409,10 @@
                             </div>
                         </div>
                     </div>
+                    <datalist id="posicionesEspeciales">
+                        <option value="PISO PLANTA1"></option>
+                        <option value="PISO PLANTA2"></option>
+                    </datalist>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                         <button type="submit" class="btn btn-primary fw-bold">Guardar</button>

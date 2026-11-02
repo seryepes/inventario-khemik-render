@@ -135,7 +135,7 @@ def actualizar_movimiento(id_: int):
     try:
         data = request.get_json(force=True)
         data["id"] = id_
-        return jsonify(service.guardar_movimiento(data))
+        return jsonify(service.guardar_movimiento(data).to_dict())
     except ValueError as error:
         return error_response(error)
 

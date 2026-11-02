@@ -76,6 +76,36 @@ class AuthenticationTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 401)
 
+    def test_inventory_api_returns_and_preserves_registration_time(self):
+        self.client.post(
+            "/api/auth/setup",
+            json={"username": "admin", "password": "admin-password"},
+        )
+        response = self.client.post(
+            "/api/movimientos",
+            json={
+                "fecha": "2026-01-01",
+                "mvto": "Ingreso",
+                "posicion": "PISO PLANTA1",
+                "producto": "Aluminio",
+                "presentacion": "125 kg",
+                "lote": "L-1",
+                "cantidad": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        registro = response.json
+        registrado_en = registro["registradoEn"]
+        registro["cantidad"] = 2
+        response = self.client.put(
+            f"/api/movimientos/{registro['id']}",
+            json=registro,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["registradoEn"], registrado_en)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ import { InventarioService } from '../servicios/service.js?v=2';
 
 // Instanciación directa del servicio local (sin credenciales ni red)
 const service = new InventarioService();
+const TOTAL_POSICIONES = 266;
 
 let currentPage = 1;
 const pageSize = 15;
@@ -192,7 +193,7 @@ function renderTabla() {
     document.getElementById('totalRecordsBadge').innerText = `${filtrados.length} registros`;
 
     if (pageData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">No se encontraron registros.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted py-4">No se encontraron registros.</td></tr>`;
     } else {
         pageData.forEach(item => {
             const tr = document.createElement('tr');
@@ -201,6 +202,7 @@ function renderTabla() {
             tr.innerHTML = `
                 <td class="fw-bold text-muted">#${item.id}</td>
                 <td class="small">${item.FechaFormateada}</td>
+                <td class="small">${item.RegistroFormateado}</td>
                 <td><span class="badge ${badgeClass} badge-pos">${item.mvto}</span></td>
                 <td><span class="badge bg-light text-dark border fw-bold">${item.posicion}</span></td>
                 <td class="fw-semibold">${item.producto}</td>
@@ -333,18 +335,23 @@ function renderMapaPosiciones() {
     const mapContainer = document.getElementById('mapaPosiciones');
     mapContainer.innerHTML = '';
 
-    for (let fila = 1; fila <= 44; fila++) {
+    const filas = Array.from({ length: 44 }, (_, indice) => ({
+        etiqueta: `Fila ${indice + 1}`,
+        posiciones: ['A', 'B', 'C', 'D', 'E', 'F'].map(columna => `${indice + 1}${columna}`)
+    }));
+    filas.push({ etiqueta: 'Pisos', posiciones: ['PISO PLANTA1', 'PISO PLANTA2'] });
+
+    filas.forEach(({ etiqueta, posiciones }) => {
         const filaDiv = document.createElement('div');
         filaDiv.className = 'grid-fila';
-        filaDiv.style.cssText = 'display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 12px; padding: 10px; background: #f8f9fa; border-radius: 8px;';
+        filaDiv.style.cssText = `display: grid; grid-template-columns: repeat(${posiciones.length}, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; padding: 10px; background: #f8f9fa; border-radius: 8px;`;
 
         const label = document.createElement('div');
         label.style.cssText = 'grid-column: 1 / -1; font-weight: bold; font-size: 14px; color: #495057; margin-bottom: 5px;';
-        label.textContent = `Fila ${fila}`;
+        label.textContent = etiqueta;
         filaDiv.appendChild(label);
 
-        ['A', 'B', 'C', 'D', 'E', 'F'].forEach(col => {
-            const posKey = `${fila}${col}`;
+        posiciones.forEach(posKey => {
             const datos = mapPosData[posKey];
             const cantidad = datos ? Math.max(0, datos.cantidad) : 0;
             const estaOcupada = datos && cantidad > 0;
@@ -370,11 +377,11 @@ function renderMapaPosiciones() {
             filaDiv.appendChild(puestoDiv);
         });
         mapContainer.appendChild(filaDiv);
-    }
+    });
 
     const ocupadas = Object.values(mapPosData).filter(d => d.cantidad > 0).length;
     document.getElementById('posOcupadas').textContent = ocupadas;
-    document.getElementById('posDisponibles').textContent = 264 - ocupadas;
+    document.getElementById('posDisponibles').textContent = TOTAL_POSICIONES - ocupadas;
 }
 
 function mostrarProductosPosicion(posicion) {
@@ -548,6 +555,7 @@ function exportarExcel() {
     const data = service.movimientos.map(i => ({
         "ID": i.id,
         "Fecha": i.FechaFormateada,
+        "Registrado": i.RegistroFormateado,
         "Movimiento": i.mvto,
         "Posición": i.posicion,
         "Producto": i.producto,
@@ -564,9 +572,9 @@ function exportarExcel() {
 }
 
 function exportarCSV() {
-    let csv = "ID,Fecha,Movimiento,Posicion,Producto,Presentacion,Lote,Cantidad,Observaciones\n";
+    let csv = "ID,Fecha,Registrado,Movimiento,Posicion,Producto,Presentacion,Lote,Cantidad,Observaciones\n";
     service.movimientos.forEach(i => {
-        csv += `"${i.id}","${i.FechaFormateada}","${i.mvto}","${i.posicion}","${i.producto}","${i.presentacion}","${i.lote}",${i.cantidad},"${i.observaciones}"\n`;
+        csv += `"${i.id}","${i.FechaFormateada}","${i.RegistroFormateado}","${i.mvto}","${i.posicion}","${i.producto}","${i.presentacion}","${i.lote}",${i.cantidad},"${i.observaciones}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -583,6 +591,7 @@ function exportarBackupJSON() {
         registros: service.movimientos.map(item => ({
             id: item.id,
             fecha: item.fecha,
+            registradoEn: item.registradoEn,
             mvto: item.mvto,
             posicion: item.posicion,
             producto: item.producto,

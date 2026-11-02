@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import secrets
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Generator
 
@@ -74,6 +75,9 @@ class SQLiteInventarioRepository:
                     value TEXT NOT NULL
                 )
             """)
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(movimientos)")}
+            if "registrado_en" not in columns:
+                db.execute("ALTER TABLE movimientos ADD COLUMN registrado_en TEXT")
 
     def get_or_create_secret_key(self) -> str:
         with self._connect() as db:
@@ -121,8 +125,12 @@ class SQLiteInventarioRepository:
             id=row["id"], fecha=row["fecha"], mvto=row["mvto"], posicion=row["posicion"],
             producto=row["producto"], presentacion=row["presentacion"], lote=row["lote"],
             cantidad=row["cantidad"], observaciones=row["observaciones"], traslado_id=row["traslado_id"],
-            es_traslado=bool(row["es_traslado"]),
+            es_traslado=bool(row["es_traslado"]), registrado_en=row["registrado_en"],
         )
+
+    @staticmethod
+    def _ahora() -> str:
+        return datetime.now().astimezone().isoformat(timespec="seconds")
 
     @staticmethod
     def _payload(item: Movimiento) -> tuple[Any, ...]:
@@ -139,17 +147,24 @@ class SQLiteInventarioRepository:
     def guardar(self, movimiento: Movimiento) -> Movimiento:
         with self._connect() as db:
             if movimiento.id:
+                row = db.execute(
+                    "SELECT registrado_en FROM movimientos WHERE id=?",
+                    (movimiento.id,),
+                ).fetchone()
                 db.execute(
                     "UPDATE movimientos SET fecha=?, mvto=?, posicion=?, producto=?, presentacion=?, "
                     "lote=?, cantidad=?, observaciones=? WHERE id=?",
                     (*self._payload(movimiento)[:8], movimiento.id),
                 )
+                if row:
+                    movimiento.registrado_en = row["registrado_en"]
             else:
+                movimiento.registrado_en = movimiento.registrado_en or self._ahora()
                 cursor = db.execute(
                     "INSERT INTO movimientos "
-                    "(fecha,mvto,posicion,producto,presentacion,lote,cantidad,observaciones,traslado_id,es_traslado) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    self._payload(movimiento),
+                    "(fecha,mvto,posicion,producto,presentacion,lote,cantidad,observaciones,traslado_id,es_traslado,registrado_en) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (*self._payload(movimiento), movimiento.registrado_en),
                 )
                 movimiento.id = cursor.lastrowid
         return movimiento
@@ -157,11 +172,12 @@ class SQLiteInventarioRepository:
     def guardar_varios(self, movimientos: list[Movimiento]) -> list[Movimiento]:
         with self._connect() as db:
             for movimiento in movimientos:
+                movimiento.registrado_en = movimiento.registrado_en or self._ahora()
                 cursor = db.execute(
                     "INSERT INTO movimientos "
-                    "(fecha,mvto,posicion,producto,presentacion,lote,cantidad,observaciones,traslado_id,es_traslado) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    self._payload(movimiento),
+                    "(fecha,mvto,posicion,producto,presentacion,lote,cantidad,observaciones,traslado_id,es_traslado,registrado_en) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (*self._payload(movimiento), movimiento.registrado_en),
                 )
                 movimiento.id = cursor.lastrowid
         return movimientos
@@ -184,7 +200,7 @@ class SQLiteInventarioRepository:
             for movimiento in movimientos:
                 db.execute(
                     "INSERT INTO movimientos "
-                    "(id,fecha,mvto,posicion,producto,presentacion,lote,cantidad,observaciones,traslado_id,es_traslado) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (movimiento.id, *self._payload(movimiento)),
+                    "(id,fecha,mvto,posicion,producto,presentacion,lote,cantidad,observaciones,traslado_id,es_traslado,registrado_en) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (movimiento.id, *self._payload(movimiento), movimiento.registrado_en),
                 )

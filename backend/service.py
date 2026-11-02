@@ -8,6 +8,7 @@ from .domain import Movimiento
 from repository import SQLiteInventarioRepository
 
 CAPACIDAD_POR_PRESENTACION = {"125 kg": 5, "200 kg": 4}
+POSICIONES_PISO = ("PISO PLANTA1", "PISO PLANTA2")
 
 
 class InventarioService:
@@ -24,7 +25,8 @@ class InventarioService:
 
     def _cantidad_posicion(self, posicion: str, presentacion: str, movimientos: list[Movimiento], excluir_id: int | None = None) -> int:
         return sum(item.cantidad * item.factor for item in movimientos
-                   if item.posicion == posicion and item.presentacion == presentacion and item.id != excluir_id)
+                   if item.posicion == posicion and item.presentacion == presentacion
+                   and (excluir_id is None or item.id != excluir_id))
 
     def _validar_capacidad(self, movimiento: Movimiento, movimientos: list[Movimiento], posicion: str | None = None) -> None:
         posicion = Movimiento.normalizar_posicion(posicion or movimiento.posicion)
@@ -36,12 +38,31 @@ class InventarioService:
             disponible = max(0, capacidad - actual)
             raise ValueError(f"La ubicación {posicion} está llena para {movimiento.presentacion}. Capacidad máxima: {capacidad} productos; disponibles: {disponible}.")
 
+    def _validar_ocupacion(self, movimiento: Movimiento, movimientos: list[Movimiento], posicion: str | None = None) -> None:
+        ubicacion = Movimiento.normalizar_posicion(posicion or movimiento.posicion)
+        if movimiento.mvto != "Ingreso" or ubicacion == "SIN UBICAR":
+            return
+        stock_por_producto: dict[str, int] = {}
+        nombres_producto: dict[str, str] = {}
+        for item in movimientos:
+            if (movimiento.id is not None and item.id == movimiento.id) or item.posicion != ubicacion:
+                continue
+            clave_producto = item.producto.casefold()
+            stock_por_producto[clave_producto] = stock_por_producto.get(clave_producto, 0) + item.cantidad * item.factor
+            nombres_producto[clave_producto] = item.producto
+        for clave_producto, cantidad in stock_por_producto.items():
+            if cantidad > 0 and clave_producto != movimiento.producto.casefold():
+                raise ValueError(
+                    f"La ubicación {ubicacion} está ocupada por {nombres_producto[clave_producto]}; "
+                    f"no se puede ubicar {movimiento.producto} allí."
+                )
+
     def _validar_duplicado(self, movimiento: Movimiento, movimientos: list[Movimiento]) -> None:
         lote = self._normalizar_lote(movimiento.lote)
         if not lote or lote == "-" or movimiento.mvto != "Ingreso" or movimiento.es_traslado:
             return
         for item in movimientos:
-            if item.id != movimiento.id and self._normalizar_lote(item.lote) == lote and item.producto == movimiento.producto and item.presentacion == movimiento.presentacion and item.mvto == "Salida":
+            if (movimiento.id is None or item.id != movimiento.id) and self._normalizar_lote(item.lote) == lote and item.producto == movimiento.producto and item.presentacion == movimiento.presentacion and item.mvto == "Salida":
                 raise ValueError(f"El lote {lote} ya existe como salida y no puede registrarse como ingreso.")
 
     def guardar_movimiento(self, data: dict[str, Any]) -> Movimiento:
@@ -50,6 +71,7 @@ class InventarioService:
             raise ValueError("La cantidad debe ser mayor que cero.")
         movimientos = self.listar()
         self._validar_duplicado(movimiento, movimientos)
+        self._validar_ocupacion(movimiento, movimientos)
         self._validar_capacidad(movimiento, movimientos)
         return self.repository.guardar(movimiento)
 
@@ -68,6 +90,7 @@ class InventarioService:
         if movimiento.cantidad <= 0 or movimiento.cantidad > disponible:
             raise ValueError(f"Stock insuficiente para trasladar. Disponible en {origen}: {disponible}.")
         ingreso = Movimiento.from_dict({**data, "mvto": "Ingreso", "posicion": destino})
+        self._validar_ocupacion(ingreso, movimientos, destino)
         self._validar_capacidad(ingreso, movimientos, destino)
         traslado_id = f"TR-{uuid.uuid4().hex[:12]}"
         observaciones = movimiento.observaciones or f"Traslado de {origen} a {destino}"
@@ -90,6 +113,7 @@ class InventarioService:
             try:
                 base = movimientos + validos
                 self._validar_duplicado(item, base)
+                self._validar_ocupacion(item, base)
                 self._validar_capacidad(item, base)
                 validos.append(item)
             except ValueError:
@@ -121,7 +145,10 @@ class InventarioService:
         return result
 
     def mapa_posiciones(self) -> dict[str, dict[str, Any]]:
-        result: dict[str, dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {
+            posicion: {"cantidad": 0, "aluminioTotal": 0, "magnesioTotal": 0, "otroTotal": 0}
+            for posicion in POSICIONES_PISO
+        }
         for item in self.listar():
             if not item.posicion or item.posicion == "SIN UBICAR" or item.factor == 0:
                 continue

@@ -19,6 +19,7 @@ class Movimiento:
     posicion_destino: str = ""
     traslado_id: str | None = None
     es_traslado: bool = False
+    registrado_en: str | None = None
 
     def __post_init__(self) -> None:
         self.id = int(self.id) if self.id not in (None, "") else None
@@ -63,7 +64,7 @@ class Movimiento:
             "producto": self.producto, "presentacion": self.presentacion,
             "lote": self.lote, "cantidad": self.cantidad,
             "observaciones": self.observaciones, "trasladoId": self.traslado_id,
-            "esTraslado": self.es_traslado,
+            "esTraslado": self.es_traslado, "registradoEn": self.registrado_en,
         }
 
     @classmethod
@@ -75,4 +76,5 @@ class Movimiento:
             lote=data.get("lote"), cantidad=data.get("cantidad"), observaciones=data.get("observaciones"),
             traslado_id=data.get("trasladoId", data.get("traslado_id")),
             es_traslado=data.get("esTraslado", data.get("es_traslado", False)),
+            registrado_en=data.get("registradoEn", data.get("registrado_en")),
         )

@@ -21,6 +21,8 @@ python app.py
 
 Abre `http://127.0.0.1:5000` en el navegador. La base de datos se crea automaticamente dentro de `repository`. Si existe la base anterior `inventario.db` en la raiz, se mueve a la nueva ubicacion en el primer inicio, conservando sus registros.
 
+El mapa incluye las posiciones **PISO PLANTA1** y **PISO PLANTA2**. Una posición no admite ingresos de un producto diferente mientras tenga existencias; la regla también se aplica a traslados e importaciones. Cada registro nuevo conserva automáticamente la fecha y hora de creación, visible en la tabla y en las exportaciones. Los registros anteriores a esta mejora no tienen una hora histórica disponible y se muestran como **No disponible**.
+
 ## Acceso y usuarios
 
 En el primer inicio, Khemik solicita crear la cuenta del administrador. No hay una contraseña predeterminada: define el usuario y una contraseña de al menos 8 caracteres en esa pantalla. Después, el administrador puede abrir **Usuarios** para crear cuentas y asignarles contraseñas. Los usuarios pueden entrar al inventario, pero solo el administrador puede crear cuentas.
