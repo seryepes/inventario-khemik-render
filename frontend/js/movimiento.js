@@ -1,8 +1,9 @@
 export class Movimiento {
-    constructor({ id = null, fecha, registradoEn = null, mvto, posicion = 'Sin Ubicar', posicionDestino = '', producto = 'Otro', presentacion = 'Otra', lote = '-', cantidad = 0, observaciones = '', trasladoId = null, esTraslado = false }) {
+    constructor({ id = null, fecha, creadoEn = '', creadoPor = '', mvto, posicion = 'Sin Ubicar', posicionDestino = '', producto = 'Otro', presentacion = 'Otra', lote = '-', cantidad = 0, observaciones = '', trasladoId = null, esTraslado = false }) {
         this.id = id ? parseInt(id) : null;
         this.fecha = fecha || new Date().toISOString().split('T')[0];
-        this.registradoEn = registradoEn;
+        this.creadoEn = creadoEn;
+        this.creadoPor = creadoPor;
         this.mvto = Movimiento.normalizarMovimiento(mvto);
         this.posicion = Movimiento.normalizarPosicion(posicion);
         this.posicionDestino = posicionDestino ? Movimiento.normalizarPosicion(posicionDestino) : '';
@@ -51,8 +52,8 @@ export class Movimiento {
     }
 
     get RegistroFormateado() {
-        if (!this.registradoEn) return 'No disponible';
-        const fechaHora = new Date(this.registradoEn);
+        if (!this.creadoEn) return 'No disponible';
+        const fechaHora = new Date(this.creadoEn);
         if (Number.isNaN(fechaHora.getTime())) return 'No disponible';
         return new Intl.DateTimeFormat('es-CO', {
             dateStyle: 'short',
