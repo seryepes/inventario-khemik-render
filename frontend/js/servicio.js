@@ -21,6 +21,7 @@ async function request(path, options = {}) {
 export class InventarioService {
     constructor() {
         this.movimientos = [];
+        this.mapaPosiciones = {};
         this.catalogos = { productos: [], presentaciones: [], ubicaciones: [] };
     }
 
@@ -73,9 +74,21 @@ export class InventarioService {
     }
 
     async cargarDatos() {
-        const data = await request('/movimientos');
+        const [data, mapaPosiciones] = await Promise.all([
+            request('/movimientos'),
+            request('/posiciones')
+        ]);
         this.movimientos = data.map(item => new Movimiento(item));
+        this.mapaPosiciones = mapaPosiciones;
         return this.movimientos;
+    }
+
+    async actualizarPeligroPosicion(codigo, peligrosa, titulo) {
+        await request(`/posiciones/${encodeURIComponent(codigo)}/peligro`, {
+            method: 'PATCH',
+            body: JSON.stringify({ peligrosa, titulo })
+        });
+        await this.cargarDatos();
     }
 
     async guardarMovimiento(datos) {
@@ -166,17 +179,6 @@ export class InventarioService {
     }
 
     obtenerMapaPosiciones() {
-        const posiciones = {};
-        this.movimientos.forEach(item => {
-            if (!item.posicion || item.posicion.toUpperCase() === 'SIN UBICAR' || item.Factor === 0) return;
-            posiciones[item.posicion] ||= { cantidad: 0, aluminioTotal: 0, magnesioTotal: 0, otroTotal: 0 };
-            const cantidad = item.cantidad * item.Factor;
-            const posicion = posiciones[item.posicion];
-            posicion.cantidad += cantidad;
-            if (item.producto === 'Aluminio') posicion.aluminioTotal += cantidad;
-            else if (item.producto === 'Magnesio') posicion.magnesioTotal += cantidad;
-            else posicion.otroTotal += cantidad;
-        });
-        return posiciones;
+        return this.mapaPosiciones;
     }
 }

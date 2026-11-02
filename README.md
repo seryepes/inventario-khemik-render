@@ -55,13 +55,14 @@ Reglas que aplica el sistema:
 - Un lote que salió de la bodega no puede volver a ingresar (los traslados internos no cuentan como salida).
 - Un traslado son dos movimientos enlazados: no se editan, se eliminan juntos.
 - Producto, presentación y posición deben existir en el catálogo. Las posiciones se normalizan: `c12`, `C12` y `12-c` se guardan como `12C`.
+- Las posiciones peligrosas se resaltan en rojo con un título de advertencia; administradores y operadores pueden activar o quitar esa alerta desde el detalle de la posición.
 
 ## Roles
 
 | Rol | Puede |
 |---|---|
 | `admin` | Todo: usuarios, catálogos, importar Excel, restaurar backup, borrar todo, ver auditoría. |
-| `operador` | Ver, registrar, editar y eliminar movimientos y traslados. |
+| `operador` | Ver, registrar, editar y eliminar movimientos y traslados; marcar posiciones peligrosas. |
 | `consulta` | Solo ver. |
 
 ## Uso local (Windows)
@@ -93,10 +94,10 @@ En el plan gratuito, Render apaga la app tras unos 15 minutos sin uso: la primer
 
 Variables de entorno disponibles: ver [.env.example](.env.example).
 
-El mapa incluye **PISO PLANTA1** y **PISO PLANTA2**. Cada movimiento conserva su fecha y hora de creación, que se muestra en la tabla y queda disponible en los datos de la API. Como la versión anterior no guardaba la hora de registro, al migrar esos movimientos se les asigna la hora de migración, no una hora histórica.
+El mapa incluye **PISO PLANTA1** y **PISO PLANTA2**. Las materias primas usan un color común en el mapa; una posición peligrosa aparece en rojo con el título de la advertencia. Cada movimiento conserva su fecha y hora de creación, que se muestra en la tabla y queda disponible en los datos de la API. Como la versión anterior no guardaba la hora de registro, al migrar esos movimientos se les asigna la hora de migración, no una hora histórica.
 
 ## API principal
 
-`GET /api/health` · `GET /api/auth/status` · `POST /api/auth/setup` · `POST /api/auth/login` · `POST /api/auth/logout` · `GET|POST /api/auth/users` · `PATCH /api/auth/users/<usuario>` · `GET /api/catalogos` · `POST /api/catalogos/productos` · `POST /api/catalogos/presentaciones` · `GET /api/auditoria` · `GET|POST|DELETE /api/movimientos` · `PUT|DELETE /api/movimientos/<id>` · `POST /api/traslados` · `GET /api/stock` · `GET /api/estadisticas` · `GET /api/posiciones` · `POST /api/importar` · `POST /api/restaurar`
+`GET /api/health` · `GET /api/auth/status` · `POST /api/auth/setup` · `POST /api/auth/login` · `POST /api/auth/logout` · `GET|POST /api/auth/users` · `PATCH /api/auth/users/<usuario>` · `GET /api/catalogos` · `POST /api/catalogos/productos` · `POST /api/catalogos/presentaciones` · `GET /api/auditoria` · `GET|POST|DELETE /api/movimientos` · `PUT|DELETE /api/movimientos/<id>` · `POST /api/traslados` · `GET /api/stock` · `GET /api/estadisticas` · `GET /api/posiciones` · `PATCH /api/posiciones/<codigo>/peligro` · `POST /api/importar` · `POST /api/restaurar`
 
 Toda petición que modifica datos debe incluir el encabezado `X-Khemik-Request: 1` (protección CSRF); el frontend lo envía automáticamente.

@@ -1,4 +1,4 @@
-import { InventarioService } from './servicio.js?v=5';
+import { InventarioService } from './servicio.js?v=6';
 
 const service = new InventarioService();
 const TOTAL_POSICIONES = 266;
@@ -59,6 +59,14 @@ function listeners() {
     document.getElementById('tab-stock-terminado-tab').addEventListener('click', () => renderStockConsolidado());
     document.getElementById('tab-stock-materias-primas-tab').addEventListener('click', () => renderStockConsolidado());
     document.getElementById('tab-posiciones-tab').addEventListener('click', () => renderMapaPosiciones());
+    document.getElementById('contenidoProductosPosicion').addEventListener('submit', guardarAlertaPeligroPosicion);
+    document.getElementById('contenidoProductosPosicion').addEventListener('change', event => {
+        if (event.target.id === 'posicionPeligrosa') {
+            const titulo = document.getElementById('tituloPeligroPosicion');
+            titulo.required = event.target.checked;
+            titulo.disabled = !event.target.checked;
+        }
+    });
 }
 
 async function iniciarAutenticacion() {
@@ -459,49 +467,41 @@ function renderMapaPosiciones() {
     const mapPosData = service.obtenerMapaPosiciones();
     const mapContainer = document.getElementById('mapaPosiciones');
     mapContainer.innerHTML = '';
+    mapContainer.style.cssText = 'display:grid; grid-template-columns:repeat(6, minmax(125px, 1fr)); min-width:820px; gap:12px; padding:8px;';
 
-    const filas = Array.from({ length: 44 }, (_, indice) => ({
-        etiqueta: `Fila ${indice + 1}`,
-        posiciones: ['A', 'B', 'C', 'D', 'E', 'F'].map(columna => `${indice + 1}${columna}`)
-    }));
-    filas.push({ etiqueta: 'Pisos', posiciones: ['PISO PLANTA1', 'PISO PLANTA2'] });
+    Object.entries(mapPosData).forEach(([posKey, datos]) => {
+        const cantidad = Math.max(0, datos.cantidad || 0);
+        const estaOcupada = cantidad > 0;
+        const puestoDiv = document.createElement('button');
+        puestoDiv.type = 'button';
+        puestoDiv.className = 'position-tile';
+        puestoDiv.style.cssText = 'min-height:96px; padding:12px 8px; border-radius:10px; text-align:center; font-weight:600; font-size:18px; cursor:pointer; transition:all 0.2s ease; border:2px solid transparent; line-height:1.3; overflow-wrap:anywhere;';
 
-    filas.forEach(({ etiqueta, posiciones }) => {
-        const filaDiv = document.createElement('div');
-        filaDiv.className = 'grid-fila';
-        filaDiv.style.cssText = `display: grid; grid-template-columns: repeat(${posiciones.length}, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; padding: 10px; background: #f8f9fa; border-radius: 8px;`;
+        if (datos.peligrosa) {
+            puestoDiv.style.backgroundColor = '#dc3545';
+            puestoDiv.style.color = 'white';
+        } else if (estaOcupada) {
+            const tieneMateriaPrima = datos.materiaPrimaTotal > 0;
+            const tieneTerminado = datos.aluminioTotal + datos.magnesioTotal + datos.otroTotal > 0;
+            const colorBase = tieneMateriaPrima
+                ? (tieneTerminado ? '#6f42c1' : '#20a779')
+                : (datos.aluminioTotal > 0 && datos.magnesioTotal > 0 ? '#6f42c1' : (datos.aluminioTotal > 0 ? '#0d6efd' : '#fd7e14'));
+            puestoDiv.style.backgroundColor = colorBase;
+            puestoDiv.style.color = 'white';
+        } else {
+            puestoDiv.style.backgroundColor = '#ffffff';
+            puestoDiv.style.color = '#343a40';
+            puestoDiv.style.border = '2px solid #adb5bd';
+        }
 
-        const label = document.createElement('div');
-        label.style.cssText = 'grid-column: 1 / -1; font-weight: bold; font-size: 14px; color: #495057; margin-bottom: 5px;';
-        label.textContent = etiqueta;
-        filaDiv.appendChild(label);
-
-        posiciones.forEach(posKey => {
-            const datos = mapPosData[posKey];
-            const cantidad = datos ? Math.max(0, datos.cantidad) : 0;
-            const estaOcupada = datos && cantidad > 0;
-
-            const puestoDiv = document.createElement('div');
-            puestoDiv.style.cssText = 'padding: 10px; border-radius: 6px; text-align: center; font-weight: 500; font-size: 12px; cursor: pointer; transition: all 0.2s ease; border: 2px solid transparent; line-height: 1.3;';
-
-            if (estaOcupada) {
-                const tieneAlu = datos.aluminioTotal > 0;
-                const tieneMag = datos.magnesioTotal > 0;
-                let colorBase = (tieneAlu && tieneMag) ? '#6f42c1' : (tieneAlu ? '#0d6efd' : (tieneMag ? '#fd7e14' : '#212529'));
-
-                puestoDiv.style.backgroundColor = colorBase;
-                puestoDiv.style.color = 'white';
-                puestoDiv.innerHTML = `<div style="font-size: 12px; font-weight: bold;">✓ ${posKey}</div><div style="font-size: 10px; opacity: 0.9;">Total: ${cantidad}</div>`;
-                puestoDiv.addEventListener('click', () => mostrarProductosPosicion(posKey));
-            } else {
-                puestoDiv.style.backgroundColor = '#ffffff';
-                puestoDiv.style.color = '#6c757d';
-                puestoDiv.style.border = '2px solid #dee2e6';
-                puestoDiv.textContent = posKey;
-            }
-            filaDiv.appendChild(puestoDiv);
-        });
-        mapContainer.appendChild(filaDiv);
+        puestoDiv.innerHTML = `
+            <div style="font-size:18px;font-weight:700;">${datos.peligrosa ? '⚠ ' : (estaOcupada ? '✓ ' : '')}${esc(posKey)}</div>
+            ${datos.peligrosa && datos.tituloPeligro ? `<div style="font-size:14px;font-weight:700;margin-top:3px;">${esc(datos.tituloPeligro)}</div>` : ''}
+            <div style="font-size:15px;margin-top:4px;">Total: ${cantidad}</div>
+        `;
+        puestoDiv.setAttribute('aria-label', `${posKey}, total ${cantidad}${datos.peligrosa ? `, peligrosa: ${datos.tituloPeligro}` : ''}`);
+        puestoDiv.addEventListener('click', () => mostrarProductosPosicion(posKey));
+        mapContainer.appendChild(puestoDiv);
     });
 
     const ocupadas = Object.values(mapPosData).filter(d => d.cantidad > 0).length;
@@ -511,7 +511,8 @@ function renderMapaPosiciones() {
 
 function mostrarProductosPosicion(posicion) {
     const stock = service.obtenerStockConsolidado().filter(s => s.posicion === posicion);
-    document.getElementById('modalPosicionLabel').innerHTML = `<i class="fa-solid fa-box me-2"></i>Productos en Posición ${esc(posicion)}`;
+    const datosPosicion = service.obtenerMapaPosiciones()[posicion] || {};
+    document.getElementById('modalPosicionLabel').innerHTML = `<i class="fa-solid fa-box me-2"></i>Posición ${esc(posicion)}`;
 
     let html = '<div class="table-responsive"><table class="table table-hover align-middle"><thead class="table-light"><tr><th>Producto</th><th>Presentación</th><th>Lote</th><th class="text-end">Cantidad</th></tr></thead><tbody>';
     let total = 0;
@@ -521,9 +522,43 @@ function mostrarProductosPosicion(posicion) {
         html += `<tr><td>${esc(p.producto)}</td><td>${esc(p.presentacion)}</td><td><code>${esc(p.lote)}</code></td><td class="text-end fw-bold text-success">${p.cantidad} un.</td></tr>`;
     });
 
+    if (!stock.length) html += '<tr><td colspan="4" class="text-center text-muted">No hay productos en esta posición.</td></tr>';
     html += `</tbody></table></div><div class="alert alert-info mt-3 mb-0"><strong>Total:</strong> ${total} unidades</div>`;
+    if (datosPosicion.peligrosa) {
+        html += `<div class="alert alert-danger mt-3 mb-0"><strong>⚠ ${esc(datosPosicion.tituloPeligro || 'Posición peligrosa')}</strong></div>`;
+    }
+
+    if (['admin', 'operador'].includes(document.body.dataset.rol)) {
+        html += `
+            <form id="formPeligroPosicion" class="border rounded p-3 mt-3" data-codigo="${esc(posicion)}">
+                <h6 class="fw-bold mb-3">Advertencia de seguridad</h6>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="posicionPeligrosa" ${datosPosicion.peligrosa ? 'checked' : ''}>
+                    <label class="form-check-label fw-semibold" for="posicionPeligrosa">Marcar posición como peligrosa</label>
+                </div>
+                <label class="form-label" for="tituloPeligroPosicion">Título de la advertencia</label>
+                <input class="form-control mb-2" id="tituloPeligroPosicion" maxlength="100" value="${esc(datosPosicion.tituloPeligro || '')}" ${datosPosicion.peligrosa ? 'required' : 'disabled'}>
+                <button class="btn btn-danger btn-sm" type="submit">Guardar advertencia</button>
+            </form>
+        `;
+    }
     document.getElementById('contenidoProductosPosicion').innerHTML = html;
     modalProductos.show();
+}
+
+async function guardarAlertaPeligroPosicion(event) {
+    if (event.target.id !== 'formPeligroPosicion') return;
+    event.preventDefault();
+    const form = event.target;
+    const peligrosa = document.getElementById('posicionPeligrosa').checked;
+    const titulo = document.getElementById('tituloPeligroPosicion').value;
+    try {
+        await service.actualizarPeligroPosicion(form.dataset.codigo, peligrosa, titulo);
+        renderMapaPosiciones();
+        mostrarProductosPosicion(form.dataset.codigo);
+    } catch (error) {
+        alert(`No se pudo guardar la advertencia: ${error.message}`);
+    }
 }
 
 function prepararNuevoRegistro() {

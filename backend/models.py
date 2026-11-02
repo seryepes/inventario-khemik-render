@@ -56,6 +56,8 @@ class Ubicacion(Base):
     fila: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     columna: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    peligrosa: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    titulo_peligro: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
 
 class Usuario(Base):

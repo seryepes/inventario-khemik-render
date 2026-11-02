@@ -240,6 +240,15 @@ def posiciones():
     return jsonify(inventario().mapa_posiciones())
 
 
+@bp.patch("/posiciones/<path:codigo>/peligro")
+@requiere_rol(*ESCRITURA)
+def actualizar_peligro_posicion(codigo: str):
+    data = cuerpo_json()
+    return jsonify(inventario().actualizar_peligro_posicion(
+        codigo, data.get("peligrosa"), data.get("titulo"), usuario_id(),
+    ))
+
+
 @bp.post("/importar")
 @requiere_rol("admin")
 def importar():

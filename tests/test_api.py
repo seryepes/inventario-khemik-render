@@ -63,6 +63,39 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.post("/api/movimientos", self.movimiento(), consulta).status_code, 403)
         self.assertEqual(self.client.delete("/api/movimientos", headers=CSRF).status_code, 200)
 
+    def test_admin_y_operador_pueden_marcar_posicion_peligrosa(self):
+        self.setup_admin()
+        ruta = "/api/posiciones/PISO%20PLANTA1/peligro"
+        response = self.client.patch(
+            ruta, json={"peligrosa": True, "titulo": "Químicos corrosivos"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["tituloPeligro"], "Químicos corrosivos")
+
+        operador = self.crear_y_entrar("operador", "operador")
+        response = operador.patch(
+            ruta, json={"peligrosa": True, "titulo": "Riesgo eléctrico"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 200)
+        mapa = operador.get("/api/posiciones").json
+        self.assertTrue(mapa["PISO PLANTA1"]["peligrosa"])
+
+        consulta = self.crear_y_entrar("consulta", "consulta")
+        response = consulta.patch(
+            ruta, json={"peligrosa": False, "titulo": ""}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_posicion_peligrosa_exige_titulo(self):
+        self.setup_admin()
+        response = self.client.patch(
+            "/api/posiciones/1A/peligro",
+            json={"peligrosa": True, "titulo": ""},
+            headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("título", response.json["error"])
+
     def test_desactivar_usuario_cierra_su_sesion(self):
         self.setup_admin()
         operador = self.crear_y_entrar("operador", "operador")

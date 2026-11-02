@@ -14,7 +14,6 @@ from . import models as m
 from .domain import SIN_UBICAR, Movimiento
 from .repository import InventarioRepository
 
-POSICIONES_PISO = ("PISO PLANTA1", "PISO PLANTA2")
 MAX_REGISTROS_POR_CARGA = 5000
 _CODIGO_GRILLA = re.compile(r"^(\d{1,3})([A-Z]{1,2})$")
 
@@ -332,9 +331,9 @@ class InventarioService(ServicioBase):
     def stock(self) -> list[dict[str, Any]]:
         with self.transaccion() as repo:
             return [
-                {"posicion": posicion or SIN_UBICAR, "producto": producto, "presentacion": presentacion,
-                 "lote": lote, "cantidad": int(saldo)}
-                for posicion, producto, presentacion, lote, saldo in repo.stock()
+                {"posicion": posicion or SIN_UBICAR, "producto": producto, "categoria": categoria,
+                 "presentacion": presentacion, "lote": lote, "cantidad": int(saldo)}
+                for posicion, producto, categoria, presentacion, lote, saldo in repo.stock()
             ]
 
     def estadisticas(self) -> dict[str, dict[str, int]]:
@@ -347,18 +346,74 @@ class InventarioService(ServicioBase):
         return result
 
     def mapa_posiciones(self) -> dict[str, dict[str, Any]]:
-        result: dict[str, dict[str, Any]] = {
-            posicion: {"cantidad": 0, "aluminioTotal": 0, "magnesioTotal": 0, "otroTotal": 0}
-            for posicion in POSICIONES_PISO
-        }
-        for row in self.stock():
-            if row["posicion"] == SIN_UBICAR:
-                continue
-            item = result.setdefault(row["posicion"], {"cantidad": 0, "aluminioTotal": 0, "magnesioTotal": 0, "otroTotal": 0})
-            item["cantidad"] += row["cantidad"]
-            clave = {"Aluminio": "aluminioTotal", "Magnesio": "magnesioTotal"}.get(row["producto"], "otroTotal")
-            item[clave] += row["cantidad"]
+        with self.transaccion() as repo:
+            result = {
+                ubicacion.codigo: {
+                    "cantidad": 0,
+                    "aluminioTotal": 0,
+                    "magnesioTotal": 0,
+                    "materiaPrimaTotal": 0,
+                    "otroTotal": 0,
+                    "peligrosa": ubicacion.peligrosa,
+                    "tituloPeligro": ubicacion.titulo_peligro or "",
+                }
+                for ubicacion in repo.listar_ubicaciones()
+            }
+            for posicion, producto, categoria, _presentacion, _lote, saldo in repo.stock():
+                if posicion is None:
+                    continue
+                item = result.setdefault(posicion, {
+                    "cantidad": 0,
+                    "aluminioTotal": 0,
+                    "magnesioTotal": 0,
+                    "materiaPrimaTotal": 0,
+                    "otroTotal": 0,
+                    "peligrosa": False,
+                    "tituloPeligro": "",
+                })
+                cantidad = int(saldo)
+                item["cantidad"] += cantidad
+                if categoria == "materia_prima":
+                    item["materiaPrimaTotal"] += cantidad
+                elif producto == "Aluminio":
+                    item["aluminioTotal"] += cantidad
+                elif producto == "Magnesio":
+                    item["magnesioTotal"] += cantidad
+                else:
+                    item["otroTotal"] += cantidad
         return result
+
+    def actualizar_peligro_posicion(
+        self, codigo: Any, peligrosa: Any, titulo: Any, usuario_id: Optional[int],
+    ) -> dict[str, Any]:
+        codigo = str(codigo or "").strip().upper()
+        if not codigo or len(codigo) > 20:
+            raise ValueError("La posición indicada no es válida.")
+        if not isinstance(peligrosa, bool):
+            raise ValueError("El estado de peligro debe ser verdadero o falso.")
+        titulo = " ".join(str(titulo or "").split())
+        if peligrosa and not titulo:
+            raise ValueError("Escribe un título de advertencia para marcar la posición como peligrosa.")
+        if len(titulo) > 100:
+            raise ValueError("El título de advertencia no puede superar 100 caracteres.")
+        if not peligrosa:
+            titulo = ""
+        with self.transaccion() as repo:
+            ubicacion = repo.ubicacion_por_codigo(codigo)
+            if ubicacion is None or not ubicacion.activo:
+                raise LookupError(f"La posición '{codigo}' no existe.")
+            ubicacion.peligrosa = peligrosa
+            ubicacion.titulo_peligro = titulo or None
+            repo.registrar_auditoria(
+                usuario_id,
+                "posicion.peligro",
+                f"{codigo}: {'Peligrosa - ' + titulo if peligrosa else 'Advertencia retirada'}",
+            )
+            return {
+                "codigo": ubicacion.codigo,
+                "peligrosa": ubicacion.peligrosa,
+                "tituloPeligro": ubicacion.titulo_peligro or "",
+            }
 
     # --- Catálogos ---------------------------------------------------------
 

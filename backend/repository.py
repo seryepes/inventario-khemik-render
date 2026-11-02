@@ -42,16 +42,16 @@ class InventarioRepository:
         query = select(m.Ubicacion).where(m.Ubicacion.codigo == codigo)
         return self.session.scalar(self._bloquear(query, bloquear))
 
+    def listar_ubicaciones(self) -> list[m.Ubicacion]:
+        return list(self.session.scalars(
+            select(m.Ubicacion).where(m.Ubicacion.activo.is_(True)).order_by(m.Ubicacion.fila, m.Ubicacion.columna)
+        ))
+
     def listar_productos(self) -> list[m.Producto]:
         return list(self.session.scalars(select(m.Producto).order_by(m.Producto.id)))
 
     def listar_presentaciones(self) -> list[m.Presentacion]:
         return list(self.session.scalars(select(m.Presentacion).order_by(m.Presentacion.id)))
-
-    def listar_ubicaciones(self) -> list[m.Ubicacion]:
-        return list(self.session.scalars(
-            select(m.Ubicacion).where(m.Ubicacion.activo.is_(True)).order_by(m.Ubicacion.fila, m.Ubicacion.columna)
-        ))
 
     def agregar(self, entidad: Any) -> Any:
         self.session.add(entidad)
@@ -125,12 +125,18 @@ class InventarioRepository:
 
     def stock(self) -> list[Any]:
         query = (
-            select(m.Ubicacion.codigo, m.Producto.nombre, m.Presentacion.nombre, m.Movimiento.lote, SALDO.label("saldo"))
+            select(
+                m.Ubicacion.codigo, m.Producto.nombre, m.Producto.categoria,
+                m.Presentacion.nombre, m.Movimiento.lote, SALDO.label("saldo"),
+            )
             .select_from(m.Movimiento)
             .join(m.Producto, m.Movimiento.producto_id == m.Producto.id)
             .join(m.Presentacion, m.Movimiento.presentacion_id == m.Presentacion.id)
             .outerjoin(m.Ubicacion, m.Movimiento.ubicacion_id == m.Ubicacion.id)
-            .group_by(m.Ubicacion.codigo, m.Producto.nombre, m.Presentacion.nombre, m.Movimiento.lote)
+            .group_by(
+                m.Ubicacion.codigo, m.Producto.nombre, m.Producto.categoria,
+                m.Presentacion.nombre, m.Movimiento.lote,
+            )
             .having(SALDO > 0)
             .order_by(m.Ubicacion.codigo, m.Producto.nombre)
         )

@@ -62,6 +62,52 @@ class InventarioServiceTests(unittest.TestCase):
         self.assertEqual(mapa["PISO PLANTA1"]["cantidad"], 0)
         self.assertEqual(mapa["PISO PLANTA2"]["cantidad"], 0)
 
+    def test_posicion_peligrosa_guarda_y_retorna_titulo_y_color(self):
+        self.guardar(posicion="1A", producto="Otro", presentacion="Otra")
+        posicion = self.service.actualizar_peligro_posicion(
+            "1A", True, "Material inflamable", None,
+        )
+        self.assertEqual(posicion, {
+            "codigo": "1A",
+            "peligrosa": True,
+            "tituloPeligro": "Material inflamable",
+        })
+        self.assertTrue(self.service.mapa_posiciones()["1A"]["peligrosa"])
+        self.assertEqual(self.service.mapa_posiciones()["1A"]["tituloPeligro"], "Material inflamable")
+        self.assertEqual(self.service.mapa_posiciones()["1A"]["materiaPrimaTotal"], 2)
+
+        with self.assertRaisesRegex(ValueError, "título"):
+            self.service.actualizar_peligro_posicion("1A", True, "", None)
+        with self.assertRaisesRegex(LookupError, "no existe"):
+            self.service.actualizar_peligro_posicion("99Z", True, "Peligro", None)
+
+        retirada = self.service.actualizar_peligro_posicion("1A", False, "", None)
+        self.assertFalse(retirada["peligrosa"])
+        self.assertEqual(retirada["tituloPeligro"], "")
+
+    def test_migracion_agrega_campos_de_peligro_a_ubicaciones_existentes(self):
+        legacy_path = Path(self.temp_dir.name) / "legacy_locations.db"
+        engine = create_engine(f"sqlite:///{legacy_path}")
+        with engine.begin() as connection:
+            connection.execute(text(
+                "CREATE TABLE ubicaciones (id INTEGER PRIMARY KEY, codigo VARCHAR(20) UNIQUE, "
+                "fila INTEGER, columna VARCHAR(2), activo BOOLEAN)"
+            ))
+            connection.execute(text(
+                "INSERT INTO ubicaciones (codigo, fila, columna, activo) VALUES ('1A', 1, 'A', 1)"
+            ))
+        engine.dispose()
+
+        legacy_factory = inicializar_base(f"sqlite:///{legacy_path}")
+        try:
+            legacy_service = InventarioService(legacy_factory)
+            self.assertFalse(legacy_service.mapa_posiciones()["1A"]["peligrosa"])
+            self.assertEqual(legacy_service.mapa_posiciones()["1A"]["tituloPeligro"], "")
+            legacy_service.actualizar_peligro_posicion("1A", True, "Alerta", None)
+            self.assertTrue(legacy_service.mapa_posiciones()["1A"]["peligrosa"])
+        finally:
+            legacy_factory.kw["bind"].dispose()
+
     def test_editar_ingreso_no_cuenta_doble_en_capacidad(self):
         creado = self.guardar(cantidad=5)
         editado = self.service.guardar_movimiento({**self.movimiento(cantidad=4), "id": creado["id"]}, None)
