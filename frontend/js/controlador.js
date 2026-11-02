@@ -1,4 +1,4 @@
-import { InventarioService } from './servicio.js?v=6';
+import { InventarioService } from './servicio.js?v=7';
 
 const service = new InventarioService();
 const TOTAL_POSICIONES = 266;
@@ -17,6 +17,7 @@ let modalProductos;
 let modalImportacion;
 let importacionActual = null;
 let ultimaImportacionFallidos = [];
+let timerCambioEstadoLote = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
     modalRegistro = new bootstrap.Modal(document.getElementById('modalRegistro'));
@@ -55,6 +56,8 @@ function listeners() {
     document.getElementById('btnNuevoRegistro').addEventListener('click', prepararNuevoRegistro);
     document.getElementById('stockSearchProductoTerminado').addEventListener('input', renderStockConsolidado);
     document.getElementById('stockSearchMateriaPrima').addEventListener('input', renderStockConsolidado);
+    document.getElementById('stockTableProductoTerminado').addEventListener('click', guardarEstadoLote);
+    document.getElementById('stockTableMateriaPrima').addEventListener('click', guardarEstadoLote);
 
     document.getElementById('tab-stock-terminado-tab').addEventListener('click', () => renderStockConsolidado());
     document.getElementById('tab-stock-materias-primas-tab').addEventListener('click', () => renderStockConsolidado());
@@ -290,6 +293,7 @@ function actualizarEstadoGeneral() {
     renderEstadisticas();
     renderStockConsolidado();
     renderMapaPosiciones();
+    programarCambioAutomaticoEstadoLote();
 }
 
 function renderTabla() {
@@ -429,6 +433,21 @@ function renderStockCategoria(categoria, sufijo) {
         const kgPorUnidad = obtenerKgPorUnidad(s.presentacion);
         const kgFila = kgPorUnidad === null ? null : s.cantidad * kgPorUnidad;
         if (kgFila !== null) totalKg += kgFila;
+        const estadoLote = s.estadoLote;
+        const estado = estadoLote?.estado || 'cuarentena';
+        const nombreEstado = estado === 'aprobado' ? 'Aprobado' : 'Cuarentena';
+        const colorEstado = estado === 'aprobado' ? '#198754' : '#fd7e14';
+        const colorTextoEstado = estado === 'aprobado' ? '#fff' : '#212529';
+        const controlEstado = ['admin', 'operador'].includes(document.body.dataset.rol)
+            ? `<div class="d-flex gap-1 mt-1">
+                    <select class="form-select form-select-sm" data-estado-seleccionado aria-label="Cambiar estado de ${esc(s.producto)} lote ${esc(s.lote)}">
+                        <option value="cuarentena" ${estado === 'cuarentena' ? 'selected' : ''}>Cuarentena</option>
+                        <option value="aprobado" ${estado === 'aprobado' ? 'selected' : ''}>Aprobado</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-accion-estado-lote
+                        data-producto="${esc(s.producto)}" data-lote="${esc(s.lote)}" aria-label="Guardar estado">Guardar</button>
+                </div>`
+            : '';
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><span class="badge bg-secondary">${esc(s.posicion)}</span></td>
@@ -437,19 +456,65 @@ function renderStockCategoria(categoria, sufijo) {
             <td><code>${esc(s.lote)}</code></td>
             <td class="text-end fw-bold text-success fs-6">${s.cantidad}</td>
             <td class="text-end fw-semibold">${kgFila === null ? 'No definido' : `${formatearKg(kgFila)} kg`}</td>
+            <td>
+                <span class="badge" style="background-color:${colorEstado};color:${colorTextoEstado};">${nombreEstado}${estadoLote?.manual ? ' · Manual' : ''}</span>
+                ${controlEstado}
+            </td>
         `;
         tbody.appendChild(tr);
     });
 
     if (!filtrados.length) {
         const fila = document.createElement('tr');
-        fila.innerHTML = '<td colspan="6" class="text-center text-muted py-4">No hay existencias para esta categoría.</td>';
+        fila.innerHTML = '<td colspan="7" class="text-center text-muted py-4">No hay existencias para esta categoría.</td>';
         tbody.appendChild(fila);
     }
 
     document.getElementById(`stockFooter${sufijo}`).innerText = totalFiltrado;
     document.getElementById(`stockKgFooter${sufijo}`).innerText = `${formatearKg(totalKg)} kg`;
     document.getElementById(`stockTotal${sufijo}`).innerText = `${totalFiltrado} un.`;
+}
+
+async function guardarEstadoLote(event) {
+    const boton = event.target.closest('button[data-accion-estado-lote]');
+    if (!boton) return;
+    const select = boton.parentElement.querySelector('[data-estado-seleccionado]');
+    boton.disabled = true;
+    try {
+        await service.actualizarEstadoLote(boton.dataset.producto, boton.dataset.lote, select.value);
+        renderStockConsolidado();
+        programarCambioAutomaticoEstadoLote();
+    } catch (error) {
+        alert(`No se pudo actualizar el estado del lote: ${error.message}`);
+    } finally {
+        boton.disabled = false;
+    }
+}
+
+function programarCambioAutomaticoEstadoLote() {
+    if (timerCambioEstadoLote !== null) clearTimeout(timerCambioEstadoLote);
+    const expiraciones = [...service.estadosLote.values()]
+        .filter(lote => lote.estado === 'cuarentena' && !lote.manual)
+        .map(lote => Date.parse(lote.primerIngresoEn) + 10 * 24 * 60 * 60 * 1000)
+        .filter(Number.isFinite);
+    if (!expiraciones.length) {
+        timerCambioEstadoLote = null;
+        return;
+    }
+
+    const demora = Math.max(1000, Math.min(...expiraciones) - Date.now() + 100);
+    timerCambioEstadoLote = setTimeout(refrescarEstadosLoteAutomaticos, demora);
+}
+
+async function refrescarEstadosLoteAutomaticos() {
+    try {
+        await service.cargarEstadosLotes();
+        renderStockConsolidado();
+        programarCambioAutomaticoEstadoLote();
+    } catch (error) {
+        alert(`No se pudo actualizar automáticamente el estado de los lotes: ${error.message}`);
+        timerCambioEstadoLote = setTimeout(refrescarEstadosLoteAutomaticos, 60_000);
+    }
 }
 
 function obtenerKgPorUnidad(presentacion) {
@@ -514,15 +579,17 @@ function mostrarProductosPosicion(posicion) {
     const datosPosicion = service.obtenerMapaPosiciones()[posicion] || {};
     document.getElementById('modalPosicionLabel').innerHTML = `<i class="fa-solid fa-box me-2"></i>Posición ${esc(posicion)}`;
 
-    let html = '<div class="table-responsive"><table class="table table-hover align-middle"><thead class="table-light"><tr><th>Producto</th><th>Presentación</th><th>Lote</th><th class="text-end">Cantidad</th></tr></thead><tbody>';
+    let html = '<div class="table-responsive"><table class="table table-hover align-middle"><thead class="table-light"><tr><th>Producto</th><th>Presentación</th><th>Lote</th><th>Estado</th><th class="text-end">Cantidad</th></tr></thead><tbody>';
     let total = 0;
 
     stock.forEach(p => {
         total += p.cantidad;
-        html += `<tr><td>${esc(p.producto)}</td><td>${esc(p.presentacion)}</td><td><code>${esc(p.lote)}</code></td><td class="text-end fw-bold text-success">${p.cantidad} un.</td></tr>`;
+        const estado = service.estadosLote.get(service.claveLote(p.producto, p.lote));
+        const aprobado = estado?.estado === 'aprobado';
+        html += `<tr><td>${esc(p.producto)}</td><td>${esc(p.presentacion)}</td><td><code>${esc(p.lote)}</code></td><td><span class="badge" style="background-color:${aprobado ? '#198754' : '#fd7e14'};color:${aprobado ? '#fff' : '#212529'};">${aprobado ? 'Aprobado' : 'Cuarentena'}</span></td><td class="text-end fw-bold text-success">${p.cantidad} un.</td></tr>`;
     });
 
-    if (!stock.length) html += '<tr><td colspan="4" class="text-center text-muted">No hay productos en esta posición.</td></tr>';
+    if (!stock.length) html += '<tr><td colspan="5" class="text-center text-muted">No hay productos en esta posición.</td></tr>';
     html += `</tbody></table></div><div class="alert alert-info mt-3 mb-0"><strong>Total:</strong> ${total} unidades</div>`;
     if (datosPosicion.peligrosa) {
         html += `<div class="alert alert-danger mt-3 mb-0"><strong>⚠ ${esc(datosPosicion.tituloPeligro || 'Posición peligrosa')}</strong></div>`;

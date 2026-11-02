@@ -22,6 +22,7 @@ export class InventarioService {
     constructor() {
         this.movimientos = [];
         this.mapaPosiciones = {};
+        this.estadosLote = new Map();
         this.catalogos = { productos: [], presentaciones: [], ubicaciones: [] };
     }
 
@@ -80,7 +81,29 @@ export class InventarioService {
         ]);
         this.movimientos = data.map(item => new Movimiento(item));
         this.mapaPosiciones = mapaPosiciones;
+        await this.cargarEstadosLotes();
         return this.movimientos;
+    }
+
+    async cargarEstadosLotes() {
+        const estados = await request('/lotes/estados');
+        this.estadosLote = new Map(estados.map(item => [
+            this.claveLote(item.producto, item.lote),
+            item
+        ]));
+        return this.estadosLote;
+    }
+
+    claveLote(producto, lote) {
+        return JSON.stringify([producto, lote]);
+    }
+
+    async actualizarEstadoLote(producto, lote, estado) {
+        await request('/lotes/estado', {
+            method: 'PATCH',
+            body: JSON.stringify({ producto, lote, estado })
+        });
+        await this.cargarEstadosLotes();
     }
 
     async actualizarPeligroPosicion(codigo, peligrosa, titulo) {
@@ -156,6 +179,7 @@ export class InventarioService {
                 posicion: item.posicion,
                 producto: item.producto,
                 categoria: categorias.get(item.producto),
+                estadoLote: this.estadosLote.get(this.claveLote(item.producto, item.lote)),
                 presentacion: item.presentacion,
                 lote: item.lote,
                 cantidad: 0

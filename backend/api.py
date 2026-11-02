@@ -249,6 +249,20 @@ def actualizar_peligro_posicion(codigo: str):
     ))
 
 
+@bp.get("/lotes/estados")
+def estados_lotes():
+    return jsonify(inventario().estados_lotes())
+
+
+@bp.patch("/lotes/estado")
+@requiere_rol(*ESCRITURA)
+def actualizar_estado_lote():
+    data = cuerpo_json()
+    return jsonify(inventario().actualizar_estado_lote(
+        data.get("producto"), data.get("lote"), data.get("estado"), usuario_id(),
+    ))
+
+
 @bp.post("/importar")
 @requiere_rol("admin")
 def importar():

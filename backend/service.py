@@ -4,7 +4,7 @@ import re
 import secrets
 import uuid
 from contextlib import contextmanager
-from datetime import date, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterator, Optional
 
 from sqlalchemy import text
@@ -36,6 +36,49 @@ class ServicioBase:
 
 
 class InventarioService(ServicioBase):
+
+    @staticmethod
+    def _utc_datetime(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    @classmethod
+    def _estado_automatico(cls, primer_ingreso_en: datetime) -> str:
+        primer_ingreso_en = cls._utc_datetime(primer_ingreso_en)
+        return "aprobado" if m.ahora() >= primer_ingreso_en + timedelta(days=10) else "cuarentena"
+
+    @classmethod
+    def _asegurar_estado_lote(
+        cls, repo: InventarioRepository, producto: m.Producto, lote: str,
+    ) -> m.EstadoLote:
+        estado = repo.estado_lote(producto.id, lote, bloquear=True)
+        if estado is not None:
+            return estado
+        primer_ingreso_en = repo.primer_ingreso_lote(producto.id, lote) or m.ahora()
+        estado = repo.agregar(m.EstadoLote(
+            producto_id=producto.id,
+            lote=lote,
+            estado=cls._estado_automatico(primer_ingreso_en),
+            primer_ingreso_en=primer_ingreso_en,
+            manual=False,
+            actualizado_en=m.ahora(),
+        ))
+        return estado
+
+    @classmethod
+    def _serializar_estado_lote(
+        cls, estado: m.EstadoLote, producto: str, categoria: str,
+    ) -> dict[str, Any]:
+        primer_ingreso = cls._utc_datetime(estado.primer_ingreso_en)
+        return {
+            "producto": producto,
+            "categoria": categoria,
+            "lote": estado.lote,
+            "estado": estado.estado,
+            "primerIngresoEn": primer_ingreso.isoformat(),
+            "manual": estado.manual,
+        }
 
     # --- Conversión ------------------------------------------------------
 
@@ -185,6 +228,12 @@ class InventarioService(ServicioBase):
 
         producto, presentacion, ubicacion = self._resolver(repo, mov)
         self._validar_reglas(repo, mov, producto, presentacion, ubicacion)
+        nuevo_movimiento = fila is None
+        saldo_sin_lote_antes = (
+            repo.saldo_producto_lote(producto.id, mov.lote)
+            if nuevo_movimiento and mov.mvto == "Ingreso" and mov.lote == "-"
+            else 0
+        )
 
         if fila is None:
             fila = repo.agregar(self._nueva_fila(mov, mov.mvto, producto, presentacion, ubicacion, usuario_id))
@@ -195,6 +244,25 @@ class InventarioService(ServicioBase):
             fila.lote, fila.cantidad, fila.observaciones = mov.lote, mov.cantidad, mov.observaciones
             fila.actualizado_por_id, fila.actualizado_en = usuario_id, m.ahora()
             repo.session.flush()
+        if mov.mvto == "Ingreso":
+            if nuevo_movimiento and mov.lote == "-" and saldo_sin_lote_antes == 0:
+                estado_existente = repo.estado_lote(producto.id, mov.lote, bloquear=True)
+                if estado_existente is None:
+                    repo.agregar(m.EstadoLote(
+                        producto_id=producto.id,
+                        lote=mov.lote,
+                        estado="cuarentena",
+                        primer_ingreso_en=fila.creado_en or m.ahora(),
+                        manual=False,
+                        actualizado_en=m.ahora(),
+                    ))
+                else:
+                    estado_existente.estado = "cuarentena"
+                    estado_existente.primer_ingreso_en = fila.creado_en or m.ahora()
+                    estado_existente.manual = False
+                    estado_existente.actualizado_en = m.ahora()
+            else:
+                self._asegurar_estado_lote(repo, producto, mov.lote)
         claves[self._clave(fila)] = ubicacion.codigo if ubicacion else SIN_UBICAR
         self._verificar_saldos(repo, claves)
         return fila
@@ -239,6 +307,7 @@ class InventarioService(ServicioBase):
                 repo.agregar(self._nueva_fila(mov, tipo, producto, presentacion, ubicacion, usuario_id, traslado_id, observaciones))
                 for tipo, ubicacion in (("Salida", origen), ("Ingreso", destino))
             ]
+            self._asegurar_estado_lote(repo, producto, mov.lote)
             repo.registrar_auditoria(usuario_id, "traslado.crear", f"{traslado_id}: " + "; ".join(map(self._describir, filas)))
             return [self._a_dominio(fila).to_dict() for fila in filas]
 
@@ -257,6 +326,7 @@ class InventarioService(ServicioBase):
 
     def borrar_todo(self, usuario_id: Optional[int]) -> int:
         with self.transaccion() as repo:
+            repo.borrar_estados_lote()
             borrados = repo.borrar_movimientos()
             repo.registrar_auditoria(usuario_id, "movimientos.borrar_todo", f"{borrados} movimientos eliminados")
             return borrados
@@ -318,10 +388,13 @@ class InventarioService(ServicioBase):
             raise ValueError("El backup no contiene registros válidos. " + " ".join(errores[:3]))
 
         with self.transaccion() as repo:
+            repo.borrar_estados_lote()
             borrados = repo.borrar_movimientos()
             for _id, _numero, mov in sorted(validos, key=lambda item: item[:2]):
                 producto, presentacion, ubicacion = self._resolver(repo, mov, bloquear=False, crear_faltantes=True)
                 repo.agregar(self._nueva_fila(mov, mov.mvto, producto, presentacion, ubicacion, usuario_id, mov.traslado_id))
+                if mov.mvto == "Ingreso":
+                    self._asegurar_estado_lote(repo, producto, mov.lote)
             repo.registrar_auditoria(
                 usuario_id, "movimientos.restaurar",
                 f"{borrados} reemplazados por {len(validos)} del backup; {len(errores)} rechazados",
@@ -382,6 +455,53 @@ class InventarioService(ServicioBase):
                 else:
                     item["otroTotal"] += cantidad
         return result
+
+    def estados_lotes(self) -> list[dict[str, Any]]:
+        with self.transaccion() as repo:
+            estados = []
+            ahora = m.ahora()
+            for producto_id, producto, categoria, lote, _saldo in repo.lotes_con_stock():
+                producto_modelo = repo.producto_por_id(producto_id, bloquear=True)
+                if producto_modelo is None:
+                    continue
+                estado = repo.estado_lote(producto_id, lote, bloquear=True)
+                if estado is None:
+                    estado = self._asegurar_estado_lote(repo, producto_modelo, lote)
+                primer_ingreso = self._utc_datetime(estado.primer_ingreso_en)
+                if not estado.manual and estado.estado == "cuarentena" and ahora >= primer_ingreso + timedelta(days=10):
+                    estado.estado = "aprobado"
+                    estado.actualizado_en = ahora
+                    repo.registrar_auditoria(
+                        None,
+                        "lote.aprobacion_automatica",
+                        f"{producto} lote {lote}: cuarentena a aprobado al cumplir 10 días",
+                    )
+                estados.append(self._serializar_estado_lote(estado, producto, categoria))
+            return estados
+
+    def actualizar_estado_lote(
+        self, producto_nombre: Any, lote: Any, nuevo_estado: Any, usuario_id: Optional[int],
+    ) -> dict[str, Any]:
+        producto_nombre = self._validar_nombre(producto_nombre, 60)
+        lote = self._validar_nombre(lote, 60).upper()
+        nuevo_estado = str(nuevo_estado or "").strip().lower()
+        if nuevo_estado not in ("cuarentena", "aprobado"):
+            raise ValueError("El estado debe ser Cuarentena o Aprobado.")
+        with self.transaccion() as repo:
+            producto = repo.producto_por_nombre(producto_nombre, bloquear=True)
+            if producto is None:
+                raise LookupError(f"El producto '{producto_nombre}' no existe.")
+            if repo.saldo_producto_lote(producto.id, lote) <= 0:
+                raise ValueError(f"El lote {lote} no tiene existencias activas.")
+            estado = self._asegurar_estado_lote(repo, producto, lote)
+            estado.estado = nuevo_estado
+            estado.manual = True
+            estado.actualizado_en = m.ahora()
+            repo.registrar_auditoria(
+                usuario_id, "lote.estado",
+                f"{producto.nombre} lote {lote}: estado manual {nuevo_estado}",
+            )
+            return self._serializar_estado_lote(estado, producto.nombre, producto.categoria)
 
     def actualizar_peligro_posicion(
         self, codigo: Any, peligrosa: Any, titulo: Any, usuario_id: Optional[int],

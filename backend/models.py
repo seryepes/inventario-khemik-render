@@ -60,6 +60,22 @@ class Ubicacion(Base):
     titulo_peligro: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
 
+class EstadoLote(Base):
+    __tablename__ = "estados_lote"
+    __table_args__ = (
+        CheckConstraint("estado IN ('cuarentena', 'aprobado')", name="ck_estado_lote_estado"),
+        UniqueConstraint("producto_id", "lote", name="uq_estado_lote_producto_lote"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    producto_id: Mapped[int] = mapped_column(ForeignKey("productos.id", ondelete="RESTRICT"))
+    lote: Mapped[str] = mapped_column(String(60))
+    estado: Mapped[str] = mapped_column(String(20), default="cuarentena")
+    primer_ingreso_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    manual: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
+
+
 class Usuario(Base):
     __tablename__ = "usuarios"
     __table_args__ = (CheckConstraint(f"rol IN {ROLES}", name="ck_usuario_rol"),)

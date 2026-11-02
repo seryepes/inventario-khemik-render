@@ -1,11 +1,13 @@
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 
 from backend.database import inicializar_base
 from backend.domain import Movimiento
+from backend.models import EstadoLote, Movimiento as MovimientoModel, ahora
 from backend.service import InventarioService
 
 
@@ -158,6 +160,62 @@ class InventarioServiceTests(unittest.TestCase):
             self.guardar(producto="Cobre")
         self.service.crear_producto("Cobre", "materia_prima", None)
         self.assertEqual(self.guardar(producto="cobre")["producto"], "Cobre")
+
+    def test_lote_nuevo_ingresa_en_cuarentena_y_se_aprueba_a_los_diez_dias(self):
+        self.guardar()
+        estados = self.service.estados_lotes()
+        self.assertEqual(len(estados), 1)
+        self.assertEqual(estados[0]["estado"], "cuarentena")
+        self.assertFalse(estados[0]["manual"])
+
+        with self.session_factory.begin() as session:
+            estado = session.scalar(select(EstadoLote).where(EstadoLote.lote == "L-1"))
+            estado.primer_ingreso_en = ahora() - timedelta(days=10)
+
+        estados = self.service.estados_lotes()
+        self.assertEqual(estados[0]["estado"], "aprobado")
+        with self.session_factory() as session:
+            estado = session.scalar(select(EstadoLote).where(EstadoLote.lote == "L-1"))
+            self.assertEqual(estado.estado, "aprobado")
+        self.assertEqual(self.service.auditoria()[0]["accion"], "lote.aprobacion_automatica")
+
+    def test_lote_existente_sin_estado_se_reconstruye_desde_su_primer_ingreso(self):
+        self.guardar()
+        with self.session_factory.begin() as session:
+            session.execute(EstadoLote.__table__.delete())
+            movimiento = session.scalar(select(MovimientoModel).where(MovimientoModel.lote == "L-1"))
+            movimiento.creado_en = ahora() - timedelta(days=12)
+
+        estados = self.service.estados_lotes()
+        self.assertEqual(estados[0]["estado"], "aprobado")
+        self.assertFalse(estados[0]["manual"])
+
+    def test_cambio_manual_persiste_y_se_aplica_al_lote_completo(self):
+        self.guardar()
+        self.guardar(posicion="2A", presentacion="200 kg", cantidad=1)
+        manual = self.service.actualizar_estado_lote("Aluminio", "L-1", "aprobado", None)
+        self.assertTrue(manual["manual"])
+
+        with self.session_factory.begin() as session:
+            estado = session.scalar(select(EstadoLote).where(EstadoLote.lote == "L-1"))
+            estado.primer_ingreso_en = ahora() - timedelta(days=20)
+
+        estados = self.service.estados_lotes()
+        self.assertEqual(len(estados), 1)
+        self.assertEqual(estados[0]["estado"], "aprobado")
+        self.assertTrue(estados[0]["manual"])
+
+        self.service.actualizar_estado_lote("Aluminio", "L-1", "cuarentena", None)
+        self.assertEqual(self.service.estados_lotes()[0]["estado"], "cuarentena")
+
+    def test_estado_de_lote_desaparece_al_agotar_todas_sus_posiciones(self):
+        self.guardar()
+        self.guardar(posicion="2A", cantidad=1)
+        self.assertEqual(len(self.service.estados_lotes()), 1)
+        self.service.guardar_movimiento(self.movimiento(posicion="1A", mvto="Salida", cantidad=2), None)
+        self.assertEqual(len(self.service.estados_lotes()), 1)
+        self.service.guardar_movimiento(self.movimiento(posicion="2A", mvto="Salida", cantidad=1), None)
+        self.assertEqual(self.service.estados_lotes(), [])
 
     def test_catalogo_y_creacion_de_producto_incluyen_categoria(self):
         productos = {p["nombre"]: p["categoria"] for p in self.service.catalogos()["productos"]}

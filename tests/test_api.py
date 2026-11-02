@@ -86,6 +86,30 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_admin_y_operador_pueden_modificar_estado_de_lote(self):
+        self.setup_admin()
+        self.assertEqual(self.post("/api/movimientos", self.movimiento()).status_code, 201)
+        ruta = "/api/lotes/estado"
+        response = self.client.patch(
+            ruta, json={"producto": "Aluminio", "lote": "L-1", "estado": "aprobado"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["estado"], "aprobado")
+        self.assertTrue(response.json["manual"])
+
+        operador = self.crear_y_entrar("operador", "operador")
+        response = operador.patch(
+            ruta, json={"producto": "Aluminio", "lote": "L-1", "estado": "cuarentena"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(operador.get("/api/lotes/estados").json[0]["estado"], "cuarentena")
+
+        consulta = self.crear_y_entrar("consulta", "consulta")
+        response = consulta.patch(
+            ruta, json={"producto": "Aluminio", "lote": "L-1", "estado": "aprobado"}, headers=CSRF,
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_posicion_peligrosa_exige_titulo(self):
         self.setup_admin()
         response = self.client.patch(
