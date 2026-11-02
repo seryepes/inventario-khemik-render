@@ -1,4 +1,4 @@
-import { InventarioService } from './servicio.js?v=7';
+import { InventarioService } from './servicio.js?v=8';
 
 const service = new InventarioService();
 const TOTAL_POSICIONES = 266;
@@ -534,44 +534,57 @@ function renderMapaPosiciones() {
     mapContainer.innerHTML = '';
     mapContainer.style.cssText = 'display:grid; grid-template-columns:repeat(6, minmax(125px, 1fr)); min-width:820px; gap:12px; padding:8px;';
 
-    Object.entries(mapPosData).forEach(([posKey, datos]) => {
-        const cantidad = Math.max(0, datos.cantidad || 0);
-        const estaOcupada = cantidad > 0;
-        const puestoDiv = document.createElement('button');
-        puestoDiv.type = 'button';
-        puestoDiv.className = 'position-tile';
-        puestoDiv.style.cssText = 'min-height:96px; padding:12px 8px; border-radius:10px; text-align:center; font-weight:600; font-size:18px; cursor:pointer; transition:all 0.2s ease; border:2px solid transparent; line-height:1.3; overflow-wrap:anywhere;';
+    Object.entries(mapPosData)
+        .sort(([codigoA], [codigoB]) => compararPosiciones(codigoA, codigoB))
+        .forEach(([posKey, datos]) => {
+            const cantidad = Math.max(0, datos.cantidad || 0);
+            const estaOcupada = cantidad > 0;
+            const puestoDiv = document.createElement('button');
+            puestoDiv.type = 'button';
+            puestoDiv.className = 'position-tile';
+            puestoDiv.style.cssText = 'min-height:96px; padding:12px 8px; border-radius:10px; text-align:center; font-weight:600; font-size:18px; cursor:pointer; transition:all 0.2s ease; border:2px solid transparent; line-height:1.3; overflow-wrap:anywhere;';
 
-        if (datos.peligrosa) {
-            puestoDiv.style.backgroundColor = '#dc3545';
-            puestoDiv.style.color = 'white';
-        } else if (estaOcupada) {
-            const tieneMateriaPrima = datos.materiaPrimaTotal > 0;
-            const tieneTerminado = datos.aluminioTotal + datos.magnesioTotal + datos.otroTotal > 0;
-            const colorBase = tieneMateriaPrima
-                ? (tieneTerminado ? '#6f42c1' : '#20a779')
-                : (datos.aluminioTotal > 0 && datos.magnesioTotal > 0 ? '#6f42c1' : (datos.aluminioTotal > 0 ? '#0d6efd' : '#fd7e14'));
-            puestoDiv.style.backgroundColor = colorBase;
-            puestoDiv.style.color = 'white';
-        } else {
-            puestoDiv.style.backgroundColor = '#ffffff';
-            puestoDiv.style.color = '#343a40';
-            puestoDiv.style.border = '2px solid #adb5bd';
-        }
+            if (datos.peligrosa) {
+                puestoDiv.style.backgroundColor = '#dc3545';
+                puestoDiv.style.color = 'white';
+            } else if (estaOcupada) {
+                const tieneMateriaPrima = datos.materiaPrimaTotal > 0;
+                const tieneTerminado = datos.aluminioTotal + datos.magnesioTotal + datos.otroTotal > 0;
+                const colorBase = tieneMateriaPrima
+                    ? (tieneTerminado ? '#6f42c1' : '#20a779')
+                    : (datos.aluminioTotal > 0 && datos.magnesioTotal > 0 ? '#6f42c1' : (datos.aluminioTotal > 0 ? '#0d6efd' : '#fd7e14'));
+                puestoDiv.style.backgroundColor = colorBase;
+                puestoDiv.style.color = 'white';
+            } else {
+                puestoDiv.style.backgroundColor = '#ffffff';
+                puestoDiv.style.color = '#343a40';
+                puestoDiv.style.border = '2px solid #adb5bd';
+            }
 
-        puestoDiv.innerHTML = `
-            <div style="font-size:18px;font-weight:700;">${datos.peligrosa ? '⚠ ' : (estaOcupada ? '✓ ' : '')}${esc(posKey)}</div>
-            ${datos.peligrosa && datos.tituloPeligro ? `<div style="font-size:14px;font-weight:700;margin-top:3px;">${esc(datos.tituloPeligro)}</div>` : ''}
-            <div style="font-size:15px;margin-top:4px;">Total: ${cantidad}</div>
-        `;
-        puestoDiv.setAttribute('aria-label', `${posKey}, total ${cantidad}${datos.peligrosa ? `, peligrosa: ${datos.tituloPeligro}` : ''}`);
-        puestoDiv.addEventListener('click', () => mostrarProductosPosicion(posKey));
-        mapContainer.appendChild(puestoDiv);
-    });
+            puestoDiv.innerHTML = `
+                <div style="font-size:18px;font-weight:700;">${datos.peligrosa ? '⚠ ' : (estaOcupada ? '✓ ' : '')}${esc(posKey)}</div>
+                ${datos.peligrosa && datos.tituloPeligro ? `<div style="font-size:14px;font-weight:700;margin-top:3px;">${esc(datos.tituloPeligro)}</div>` : ''}
+                <div style="font-size:15px;margin-top:4px;">Total: ${cantidad}</div>
+            `;
+            puestoDiv.setAttribute('aria-label', `${posKey}, total ${cantidad}${datos.peligrosa ? `, peligrosa: ${datos.tituloPeligro}` : ''}`);
+            puestoDiv.addEventListener('click', () => mostrarProductosPosicion(posKey));
+            mapContainer.appendChild(puestoDiv);
+        });
 
     const ocupadas = Object.values(mapPosData).filter(d => d.cantidad > 0).length;
     document.getElementById('posOcupadas').textContent = ocupadas;
     document.getElementById('posDisponibles').textContent = TOTAL_POSICIONES - ocupadas;
+}
+
+function compararPosiciones(codigoA, codigoB) {
+    const a = codigoA.match(/^(\d+)([A-Z]+)$/);
+    const b = codigoB.match(/^(\d+)([A-Z]+)$/);
+    if (a && b) {
+        return Number(a[1]) - Number(b[1]) || a[2].localeCompare(b[2]);
+    }
+    if (a) return -1;
+    if (b) return 1;
+    return codigoA.localeCompare(codigoB, 'es', { numeric: true });
 }
 
 function mostrarProductosPosicion(posicion) {
