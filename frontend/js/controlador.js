@@ -414,9 +414,13 @@ function renderStockCategoria(categoria, sufijo) {
     const tbody = document.getElementById(`stockTable${sufijo}`);
     tbody.replaceChildren();
     let totalFiltrado = 0;
+    let totalKg = 0;
 
     filtrados.forEach(s => {
         totalFiltrado += s.cantidad;
+        const kgPorUnidad = obtenerKgPorUnidad(s.presentacion);
+        const kgFila = kgPorUnidad === null ? null : s.cantidad * kgPorUnidad;
+        if (kgFila !== null) totalKg += kgFila;
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><span class="badge bg-secondary">${esc(s.posicion)}</span></td>
@@ -424,18 +428,31 @@ function renderStockCategoria(categoria, sufijo) {
             <td><span class="badge bg-light text-dark border">${esc(s.presentacion)}</span></td>
             <td><code>${esc(s.lote)}</code></td>
             <td class="text-end fw-bold text-success fs-6">${s.cantidad}</td>
+            <td class="text-end fw-semibold">${kgFila === null ? 'No definido' : `${formatearKg(kgFila)} kg`}</td>
         `;
         tbody.appendChild(tr);
     });
 
     if (!filtrados.length) {
         const fila = document.createElement('tr');
-        fila.innerHTML = '<td colspan="5" class="text-center text-muted py-4">No hay existencias para esta categoría.</td>';
+        fila.innerHTML = '<td colspan="6" class="text-center text-muted py-4">No hay existencias para esta categoría.</td>';
         tbody.appendChild(fila);
     }
 
     document.getElementById(`stockFooter${sufijo}`).innerText = totalFiltrado;
+    document.getElementById(`stockKgFooter${sufijo}`).innerText = `${formatearKg(totalKg)} kg`;
     document.getElementById(`stockTotal${sufijo}`).innerText = `${totalFiltrado} un.`;
+}
+
+function obtenerKgPorUnidad(presentacion) {
+    const coincidencia = presentacion.match(/(\d+(?:[.,]\d+)?)\s*kg\b/i);
+    if (!coincidencia) return null;
+    const kg = Number(coincidencia[1].replace(',', '.'));
+    return Number.isFinite(kg) && kg > 0 ? kg : null;
+}
+
+function formatearKg(cantidad) {
+    return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(cantidad);
 }
 
 function renderMapaPosiciones() {
