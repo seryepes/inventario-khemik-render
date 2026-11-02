@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -57,6 +57,15 @@ def inicializar_base(url: str) -> sessionmaker:
 
     engine = crear_engine(url)
     Base.metadata.create_all(engine)
+    if "categoria" not in {column["name"] for column in inspect(engine).get_columns("productos")}:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "ALTER TABLE productos ADD COLUMN categoria VARCHAR(30) NOT NULL DEFAULT 'materia_prima'"
+            ))
+            connection.execute(text(
+                "UPDATE productos SET categoria = 'producto_terminado' "
+                "WHERE nombre IN ('Aluminio', 'Magnesio')"
+            ))
     session_factory = sessionmaker(engine, expire_on_commit=False)
     sembrar_catalogos(session_factory)
     # Con gunicorn --preload la app se carga antes de crear los workers:

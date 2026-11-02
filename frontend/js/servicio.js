@@ -29,8 +29,8 @@ export class InventarioService {
         return this.catalogos;
     }
 
-    async crearProducto(nombre) {
-        await request('/catalogos/productos', { method: 'POST', body: JSON.stringify({ nombre }) });
+    async crearProducto(nombre, categoria) {
+        await request('/catalogos/productos', { method: 'POST', body: JSON.stringify({ nombre, categoria }) });
         return this.cargarCatalogos();
     }
 
@@ -135,10 +135,18 @@ export class InventarioService {
 
     obtenerStockConsolidado() {
         const stockMap = {};
+        const categorias = new Map(this.catalogos.productos.map(producto => [producto.nombre, producto.categoria]));
         this.movimientos.forEach(item => {
             if (item.Factor === 0) return;
             const key = `${item.posicion}||${item.producto}||${item.presentacion}||${item.lote}`;
-            stockMap[key] ||= { posicion: item.posicion, producto: item.producto, presentacion: item.presentacion, lote: item.lote, cantidad: 0 };
+            stockMap[key] ||= {
+                posicion: item.posicion,
+                producto: item.producto,
+                categoria: categorias.get(item.producto),
+                presentacion: item.presentacion,
+                lote: item.lote,
+                cantidad: 0
+            };
             stockMap[key].cantidad += item.cantidad * item.Factor;
         });
         return Object.values(stockMap).filter(item => item.cantidad > 0);

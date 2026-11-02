@@ -1,4 +1,4 @@
-import { InventarioService } from './servicio.js?v=4';
+import { InventarioService } from './servicio.js?v=5';
 
 const service = new InventarioService();
 const TOTAL_POSICIONES = 266;
@@ -47,15 +47,17 @@ function listeners() {
     document.getElementById('backupFileInput').addEventListener('change', importarBackupJSON);
     document.getElementById('inventoryForm').addEventListener('submit', guardarRegistro);
     document.getElementById('formMvto').addEventListener('change', actualizarCamposTraslado);
+    document.getElementById('formCategoriaProducto').addEventListener('change', () => actualizarProductosPorCategoria(false));
     document.getElementById('btnExportarExcel').addEventListener('click', exportarExcel);
     document.getElementById('btnExportarCSV').addEventListener('click', exportarCSV);
     document.getElementById('btnBackupJson').addEventListener('click', exportarBackupJSON);
     document.getElementById('btnBorrarTodo').addEventListener('click', borrarTodo);
     document.getElementById('btnNuevoRegistro').addEventListener('click', prepararNuevoRegistro);
-    document.getElementById('stockSearchInput').addEventListener('input', renderStockConsolidado);
-    document.getElementById('stockFilterProduct').addEventListener('change', renderStockConsolidado);
+    document.getElementById('stockSearchProductoTerminado').addEventListener('input', renderStockConsolidado);
+    document.getElementById('stockSearchMateriaPrima').addEventListener('input', renderStockConsolidado);
 
-    document.getElementById('tab-stock-tab').addEventListener('click', () => renderStockConsolidado());
+    document.getElementById('tab-stock-terminado-tab').addEventListener('click', () => renderStockConsolidado());
+    document.getElementById('tab-stock-materias-primas-tab').addEventListener('click', () => renderStockConsolidado());
     document.getElementById('tab-posiciones-tab').addEventListener('click', () => renderMapaPosiciones());
 }
 
@@ -203,7 +205,10 @@ async function accionUsuario(event) {
 async function crearProducto(event) {
     event.preventDefault();
     try {
-        await service.crearProducto(document.getElementById('newProductName').value);
+        await service.crearProducto(
+            document.getElementById('newProductName').value,
+            document.getElementById('newProductCategory').value
+        );
         event.target.reset();
         poblarCatalogos();
         alert('Producto agregado al catálogo.');
@@ -238,15 +243,28 @@ function llenarSelect(id, nombres, opcionVacia = null) {
 
 function poblarCatalogos() {
     const { productos, presentaciones, ubicaciones } = service.catalogos;
-    const productosActivos = productos.filter(p => p.activo).map(p => p.nombre);
     const presentacionesActivas = presentaciones.filter(p => p.activo).map(p => p.nombre);
-    llenarSelect('formProducto', productosActivos);
+    actualizarProductosPorCategoria();
     llenarSelect('formPresentacion', presentacionesActivas);
     llenarSelect('filterProduct', productos.map(p => p.nombre), 'Todos los Productos');
-    llenarSelect('stockFilterProduct', productos.map(p => p.nombre), 'Todos los Productos');
     llenarSelect('filterPres', presentaciones.map(p => p.nombre), 'Todas Presentaciones');
     const lista = document.getElementById('listaPosiciones');
     lista.replaceChildren(...['SIN UBICAR', ...ubicaciones].map(codigo => new Option(codigo)));
+}
+
+function actualizarProductosPorCategoria(preservar = true) {
+    const categoria = document.getElementById('formCategoriaProducto').value;
+    const productos = service.catalogos.productos
+        .filter(producto => producto.activo && producto.categoria === categoria)
+        .map(producto => producto.nombre);
+    llenarSelect(
+        'formProducto',
+        productos,
+        categoria ? 'Selecciona un producto' : 'Selecciona primero el tipo de producto'
+    );
+    const select = document.getElementById('formProducto');
+    select.disabled = !categoria;
+    if (!preservar && select.options.length) select.selectedIndex = 0;
 }
 
 async function cargarAplicacion() {
@@ -381,29 +399,20 @@ function renderEstadisticas() {
 }
 
 function renderStockConsolidado() {
-    const stock = service.obtenerStockConsolidado();
-    const txt = document.getElementById('stockSearchInput').value.toLowerCase().trim();
-    const prod = document.getElementById('stockFilterProduct').value;
+    renderStockCategoria('producto_terminado', 'ProductoTerminado');
+    renderStockCategoria('materia_prima', 'MateriaPrima');
+}
 
-    let totAlu = 0, totMag = 0, totGen = 0;
-    stock.forEach(s => {
-        totGen += s.cantidad;
-        if (s.producto === 'Aluminio') totAlu += s.cantidad;
-        else if (s.producto === 'Magnesio') totMag += s.cantidad;
-    });
-
-    document.getElementById('stockTotalAluminio').innerText = `${totAlu} un.`;
-    document.getElementById('stockTotalMagnesio').innerText = `${totMag} un.`;
-    document.getElementById('stockTotalGeneral').innerText = `${totGen} un.`;
-
-    const filtrados = stock.filter(s => {
-        const matchTxt = s.posicion.toLowerCase().includes(txt) || s.producto.toLowerCase().includes(txt) || s.lote.toLowerCase().includes(txt);
-        const matchProd = !prod || s.producto === prod;
-        return matchTxt && matchProd;
-    });
-
-    const tbody = document.getElementById('stockTableBody');
-    tbody.innerHTML = '';
+function renderStockCategoria(categoria, sufijo) {
+    const stock = service.obtenerStockConsolidado().filter(item => item.categoria === categoria);
+    const txt = document.getElementById(`stockSearch${sufijo}`).value.toLowerCase().trim();
+    const filtrados = stock.filter(item =>
+        item.posicion.toLowerCase().includes(txt) ||
+        item.producto.toLowerCase().includes(txt) ||
+        item.lote.toLowerCase().includes(txt)
+    );
+    const tbody = document.getElementById(`stockTable${sufijo}`);
+    tbody.replaceChildren();
     let totalFiltrado = 0;
 
     filtrados.forEach(s => {
@@ -419,8 +428,14 @@ function renderStockConsolidado() {
         tbody.appendChild(tr);
     });
 
-    document.getElementById('stockTableFooterTotal').innerText = totalFiltrado;
-    document.getElementById('stockFiltradoBadge').innerText = `${totalFiltrado} un. en esta vista`;
+    if (!filtrados.length) {
+        const fila = document.createElement('tr');
+        fila.innerHTML = '<td colspan="5" class="text-center text-muted py-4">No hay existencias para esta categoría.</td>';
+        tbody.appendChild(fila);
+    }
+
+    document.getElementById(`stockFooter${sufijo}`).innerText = totalFiltrado;
+    document.getElementById(`stockTotal${sufijo}`).innerText = `${totalFiltrado} un.`;
 }
 
 function renderMapaPosiciones() {
@@ -497,6 +512,7 @@ function mostrarProductosPosicion(posicion) {
 function prepararNuevoRegistro() {
     document.getElementById('inventoryForm').reset();
     document.getElementById('editId').value = '';
+    actualizarProductosPorCategoria(false);
     document.getElementById('modalRegistroLabel').innerHTML = `<i class="fa-solid fa-plus me-2"></i>Nuevo Movimiento`;
     document.getElementById('formFecha').value = new Date().toISOString().split('T')[0];
     actualizarCamposTraslado();
@@ -514,6 +530,9 @@ function editarRegistro(id) {
     document.getElementById('editId').value = item.id;
     document.getElementById('formFecha').value = item.fecha;
     document.getElementById('formMvto').value = item.mvto;
+    const producto = service.catalogos.productos.find(p => p.nombre === item.producto);
+    document.getElementById('formCategoriaProducto').value = producto?.categoria || '';
+    actualizarProductosPorCategoria(false);
     document.getElementById('formPosicion').value = item.posicion;
     document.getElementById('formLote').value = item.lote;
     document.getElementById('formProducto').value = item.producto;

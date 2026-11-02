@@ -6,7 +6,11 @@ from sqlalchemy.orm import sessionmaker
 
 from .models import Presentacion, Producto, Ubicacion
 
-PRODUCTOS_INICIALES = ("Aluminio", "Magnesio", "Otro")
+PRODUCTOS_INICIALES = {
+    "Aluminio": "producto_terminado",
+    "Magnesio": "producto_terminado",
+    "Otro": "materia_prima",
+}
 # nombre -> capacidad máxima por ubicación (None = sin límite)
 PRESENTACIONES_INICIALES = {"125 kg": 5, "200 kg": 4, "Otra": None}
 FILAS = range(1, 45)
@@ -19,7 +23,10 @@ def sembrar_catalogos(session_factory: sessionmaker) -> None:
     try:
         with session_factory.begin() as session:
             if session.scalar(select(Producto.id).limit(1)) is None:
-                session.add_all(Producto(nombre=nombre) for nombre in PRODUCTOS_INICIALES)
+                session.add_all(
+                    Producto(nombre=nombre, categoria=categoria)
+                    for nombre, categoria in PRODUCTOS_INICIALES.items()
+                )
             if session.scalar(select(Presentacion.id).limit(1)) is None:
                 session.add_all(
                     Presentacion(nombre=nombre, capacidad_por_ubicacion=capacidad)

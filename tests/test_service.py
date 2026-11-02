@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from sqlalchemy import create_engine, text
+
 from backend.database import inicializar_base
 from backend.domain import Movimiento
 from backend.service import InventarioService
@@ -108,8 +110,46 @@ class InventarioServiceTests(unittest.TestCase):
     def test_producto_debe_estar_en_catalogo(self):
         with self.assertRaisesRegex(ValueError, "no está registrado"):
             self.guardar(producto="Cobre")
-        self.service.crear_producto("Cobre", None)
+        self.service.crear_producto("Cobre", "materia_prima", None)
         self.assertEqual(self.guardar(producto="cobre")["producto"], "Cobre")
+
+    def test_catalogo_y_creacion_de_producto_incluyen_categoria(self):
+        productos = {p["nombre"]: p["categoria"] for p in self.service.catalogos()["productos"]}
+        self.assertEqual(productos["Aluminio"], "producto_terminado")
+        self.assertEqual(productos["Magnesio"], "producto_terminado")
+        self.assertEqual(productos["Otro"], "materia_prima")
+
+        with self.assertRaisesRegex(ValueError, "categoría"):
+            self.service.crear_producto("Cobre", "sin_categoria", None)
+        creado = self.service.crear_producto("Cobre", "materia_prima", None)
+        self.assertEqual(creado["categoria"], "materia_prima")
+
+    def test_migracion_clasifica_productos_existentes_sin_categoria(self):
+        legacy_path = Path(self.temp_dir.name) / "legacy.db"
+        engine = create_engine(f"sqlite:///{legacy_path}")
+        with engine.begin() as connection:
+            connection.execute(text(
+                "CREATE TABLE productos (id INTEGER PRIMARY KEY, nombre VARCHAR(60) UNIQUE, "
+                "activo BOOLEAN, creado_en DATETIME)"
+            ))
+            connection.execute(text(
+                "INSERT INTO productos (nombre, activo) VALUES "
+                "('Aluminio', 1), ('Magnesio', 1), ('Otro', 1)"
+            ))
+        engine.dispose()
+
+        legacy_factory = inicializar_base(f"sqlite:///{legacy_path}")
+        try:
+            with legacy_factory() as session:
+                from backend.models import Producto
+                productos = {p.nombre: p.categoria for p in session.query(Producto).all()}
+            self.assertEqual(productos, {
+                "Aluminio": "producto_terminado",
+                "Magnesio": "producto_terminado",
+                "Otro": "materia_prima",
+            })
+        finally:
+            legacy_factory.kw["bind"].dispose()
 
     def test_importar_acepta_validos_y_reporta_rechazados(self):
         resultado = self.service.importar([
@@ -119,8 +159,8 @@ class InventarioServiceTests(unittest.TestCase):
         ], None)
         self.assertEqual(resultado["importados"], 2)
         self.assertEqual(resultado["rechazados"], 1)
-        self.assertIn("Registro 3", resultado["errores"][0])
-        self.assertEqual(resultado["fallidos"][0]["indice"], 2)
+        self.assertTrue(any("Registro 3" in error for error in resultado["errores"]))
+        self.assertEqual({fila["indice"] for fila in resultado["fallidos"]}, {2})
 
     def test_lote_de_importacion_sin_validos_devuelve_detalle(self):
         resultado = self.service.importar([self.movimiento(posicion="99Z"), self.movimiento(cantidad=0)], None)
@@ -130,6 +170,7 @@ class InventarioServiceTests(unittest.TestCase):
 
     def test_restaurar_reemplaza_y_completa_catalogos(self):
         self.guardar()
+        self.service.crear_producto("Zinc", "materia_prima", None)
         resultado = self.service.restaurar([
             {**self.movimiento(producto="Zinc", posicion="PATIO"), "id": 7},
             self.movimiento(cantidad=0),

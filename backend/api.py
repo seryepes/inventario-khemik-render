@@ -166,7 +166,8 @@ def catalogos():
 @bp.post("/catalogos/productos")
 @requiere_rol("admin")
 def crear_producto():
-    return jsonify(inventario().crear_producto(cuerpo_json().get("nombre"), usuario_id())), 201
+    data = cuerpo_json()
+    return jsonify(inventario().crear_producto(data.get("nombre"), data.get("categoria"), usuario_id())), 201
 
 
 @bp.post("/catalogos/presentaciones")

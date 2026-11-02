@@ -89,10 +89,11 @@ class InventarioService(ServicioBase):
         # Bloquear la fila del producto serializa las escrituras concurrentes de ese producto
         # (en PostgreSQL); así dos usuarios no pueden sacar el mismo stock a la vez.
         producto = repo.producto_por_nombre(mov.producto, bloquear=bloquear)
-        if producto is None and crear_faltantes:
-            producto = repo.agregar(m.Producto(nombre=mov.producto[:60]))
         if producto is None or not producto.activo:
-            raise ValueError(f"El producto '{mov.producto}' no está registrado en el catálogo.")
+            raise ValueError(
+                f"El producto '{mov.producto}' no está registrado en el catálogo. "
+                "Un administrador debe crearlo y asignarle una categoría."
+            )
         presentacion = repo.presentacion_por_nombre(mov.presentacion)
         if presentacion is None and crear_faltantes:
             presentacion = repo.agregar(m.Presentacion(nombre=mov.presentacion[:30]))
@@ -304,7 +305,7 @@ class InventarioService(ServicioBase):
         }
 
     def restaurar(self, registros: Any, usuario_id: Optional[int]) -> dict[str, Any]:
-        """Reemplaza todos los movimientos por los de un backup. Crea en el catálogo lo que falte."""
+        """Reemplaza movimientos; los productos deben existir para conservar su categoría asignada."""
         registros = self._validar_lista(registros)
         validos, errores = [], []
         for numero, data in enumerate(registros, 1):
@@ -364,7 +365,10 @@ class InventarioService(ServicioBase):
     def catalogos(self) -> dict[str, Any]:
         with self.transaccion() as repo:
             return {
-                "productos": [{"nombre": p.nombre, "activo": p.activo} for p in repo.listar_productos()],
+                "productos": [
+                    {"nombre": p.nombre, "categoria": p.categoria, "activo": p.activo}
+                    for p in repo.listar_productos()
+                ],
                 "presentaciones": [
                     {"nombre": p.nombre, "capacidad": p.capacidad_por_ubicacion, "activo": p.activo}
                     for p in repo.listar_presentaciones()
@@ -379,14 +383,17 @@ class InventarioService(ServicioBase):
             raise ValueError(f"El nombre debe tener entre 1 y {maximo} caracteres.")
         return limpio
 
-    def crear_producto(self, nombre: Any, usuario_id: Optional[int]) -> dict[str, Any]:
+    def crear_producto(self, nombre: Any, categoria: Any, usuario_id: Optional[int]) -> dict[str, Any]:
         nombre = self._validar_nombre(nombre, 60)
+        categoria = str(categoria or "").strip()
+        if categoria not in m.CATEGORIAS_PRODUCTO:
+            raise ValueError("La categoría debe ser Producto terminado o Materia prima.")
         with self.transaccion() as repo:
             if repo.producto_por_nombre(nombre):
                 raise ConflictoError(f"El producto '{nombre}' ya existe.")
-            repo.agregar(m.Producto(nombre=nombre))
-            repo.registrar_auditoria(usuario_id, "catalogo.producto", f"Producto creado: {nombre}")
-        return {"nombre": nombre, "activo": True}
+            repo.agregar(m.Producto(nombre=nombre, categoria=categoria))
+            repo.registrar_auditoria(usuario_id, "catalogo.producto", f"Producto creado: {nombre} ({categoria})")
+        return {"nombre": nombre, "categoria": categoria, "activo": True}
 
     def crear_presentacion(self, nombre: Any, capacidad: Any, usuario_id: Optional[int]) -> dict[str, Any]:
         nombre = self._validar_nombre(nombre, 30)

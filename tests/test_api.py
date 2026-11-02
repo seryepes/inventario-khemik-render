@@ -94,6 +94,21 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Stock insuficiente", response.json["error"])
         self.assertEqual(self.client.get("/api/no-existe").status_code, 404)
 
+    def test_crear_producto_exige_categoria_y_la_publica_en_catalogo(self):
+        self.setup_admin()
+        sin_categoria = self.post("/api/catalogos/productos", {"nombre": "Cobre"})
+        self.assertEqual(sin_categoria.status_code, 400)
+
+        creado = self.post("/api/catalogos/productos", {
+            "nombre": "Cobre",
+            "categoria": "materia_prima",
+        })
+        self.assertEqual(creado.status_code, 201)
+        self.assertEqual(creado.json["categoria"], "materia_prima")
+        catalogo = self.client.get("/api/catalogos").json
+        cobre = next(p for p in catalogo["productos"] if p["nombre"] == "Cobre")
+        self.assertEqual(cobre["categoria"], "materia_prima")
+
     def test_movimiento_guarda_y_conserva_fecha_hora_de_creacion(self):
         self.setup_admin()
         response = self.post("/api/movimientos", self.movimiento(posicion="PISO PLANTA1"))

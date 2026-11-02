@@ -12,6 +12,7 @@ from .database import Base
 
 ROLES = ("admin", "operador", "consulta")
 TIPOS_MOVIMIENTO = ("Ingreso", "Salida", "Sin ubicar")
+CATEGORIAS_PRODUCTO = ("producto_terminado", "materia_prima")
 
 
 def ahora() -> datetime:
@@ -20,9 +21,13 @@ def ahora() -> datetime:
 
 class Producto(Base):
     __tablename__ = "productos"
+    __table_args__ = (
+        CheckConstraint(f"categoria IN {CATEGORIAS_PRODUCTO}", name="ck_producto_categoria"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(60), unique=True)
+    categoria: Mapped[str] = mapped_column(String(30))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
 
