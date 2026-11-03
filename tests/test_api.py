@@ -166,6 +166,56 @@ class ApiTests(unittest.TestCase):
         cobre = next(p for p in catalogo["productos"] if p["nombre"] == "Cobre")
         self.assertEqual(cobre["categoria"], "materia_prima")
 
+    def test_admin_puede_editar_borrar_y_reactivar_producto_sin_perder_historial(self):
+        self.setup_admin()
+        movimiento = self.post("/api/movimientos", self.movimiento())
+        self.assertEqual(movimiento.status_code, 201)
+        aluminio = next(
+            producto for producto in self.client.get("/api/catalogos").json["productos"]
+            if producto["nombre"] == "Aluminio"
+        )
+        producto_id = aluminio["id"]
+
+        editado = self.client.patch(
+            f"/api/catalogos/productos/{producto_id}",
+            json={"nombre": "Aluminio Industrial", "categoria": "materia_prima"},
+            headers=CSRF,
+        )
+        self.assertEqual(editado.status_code, 200)
+        self.assertEqual(editado.json["nombre"], "Aluminio Industrial")
+        self.assertEqual(editado.json["categoria"], "materia_prima")
+        self.assertEqual(self.client.get("/api/movimientos").json[0]["producto"], "Aluminio Industrial")
+
+        borrado = self.client.delete(f"/api/catalogos/productos/{producto_id}", headers=CSRF)
+        self.assertEqual(borrado.status_code, 200)
+        self.assertFalse(borrado.json["activo"])
+        self.assertEqual(self.client.get("/api/movimientos").json[0]["id"], movimiento.json["id"])
+        self.assertEqual(
+            self.post("/api/movimientos", self.movimiento(producto="Aluminio Industrial")).status_code,
+            400,
+        )
+
+        reactivado = self.client.patch(
+            f"/api/catalogos/productos/{producto_id}",
+            json={"activo": True},
+            headers=CSRF,
+        )
+        self.assertEqual(reactivado.status_code, 200)
+        self.assertTrue(reactivado.json["activo"])
+
+    def test_solo_admin_puede_modificar_productos_del_catalogo(self):
+        self.setup_admin()
+        operador = self.crear_y_entrar("operador", "operador")
+        aluminio = next(
+            producto for producto in operador.get("/api/catalogos").json["productos"]
+            if producto["nombre"] == "Aluminio"
+        )
+        ruta = f"/api/catalogos/productos/{aluminio['id']}"
+        self.assertEqual(
+            operador.patch(ruta, json={"nombre": "Nuevo nombre"}, headers=CSRF).status_code, 403,
+        )
+        self.assertEqual(operador.delete(ruta, headers=CSRF).status_code, 403)
+
     def test_movimiento_guarda_y_conserva_fecha_hora_de_creacion(self):
         self.setup_admin()
         response = self.post("/api/movimientos", self.movimiento(posicion="PISO PLANTA1"))

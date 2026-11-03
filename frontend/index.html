@@ -528,7 +528,7 @@
                     <h6 class="fw-bold">Cuentas registradas</h6>
                     <ul class="list-group mb-4" id="userList"></ul>
 
-                    <h6 class="fw-bold">Catálogos</h6>
+                    <h6 class="fw-bold">Productos</h6>
                     <form id="createProductForm" class="row g-2 mb-2">
                         <div class="col-md-5">
                             <input class="form-control form-control-sm" id="newProductName" placeholder="Nuevo producto" required maxlength="60">
@@ -541,9 +541,16 @@
                             </select>
                         </div>
                         <div class="col-md-2">
-                            <button class="btn btn-outline-primary btn-sm w-100" type="submit">Agregar producto</button>
+                            <button class="btn btn-outline-primary btn-sm w-100" id="saveProductButton" type="submit">Agregar producto</button>
+                        </div>
+                        <div class="col-12 d-none" id="cancelProductEditContainer">
+                            <button class="btn btn-sm btn-outline-secondary" id="cancelProductEdit" type="button">Cancelar edición</button>
                         </div>
                     </form>
+                    <div class="form-text mb-2">Borrar desactiva el producto y conserva su historial; puedes volver a activarlo.</div>
+                    <ul class="list-group list-group-flush mb-4" id="productCatalogList"></ul>
+
+                    <h6 class="fw-bold">Presentaciones</h6>
                     <form id="createPresentationForm" class="input-group input-group-sm">
                         <input class="form-control" id="newPresentationName" placeholder="Nueva presentación (ej: 50 kg)" required maxlength="30">
                         <input class="form-control" id="newPresentationCapacity" type="number" min="1" placeholder="Capacidad por posición">

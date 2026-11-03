@@ -36,6 +36,19 @@ export class InventarioService {
         return this.cargarCatalogos();
     }
 
+    async actualizarProducto(id, cambios) {
+        await request(`/catalogos/productos/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(cambios)
+        });
+        return this.cargarCatalogos();
+    }
+
+    async eliminarProducto(id) {
+        await request(`/catalogos/productos/${id}`, { method: 'DELETE' });
+        return this.cargarCatalogos();
+    }
+
     async crearPresentacion(nombre, capacidad) {
         await request('/catalogos/presentaciones', { method: 'POST', body: JSON.stringify({ nombre, capacidad }) });
         return this.cargarCatalogos();

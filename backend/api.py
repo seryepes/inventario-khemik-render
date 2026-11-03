@@ -170,6 +170,18 @@ def crear_producto():
     return jsonify(inventario().crear_producto(data.get("nombre"), data.get("categoria"), usuario_id())), 201
 
 
+@bp.patch("/catalogos/productos/<int:producto_id>")
+@requiere_rol("admin")
+def actualizar_producto(producto_id: int):
+    return jsonify(inventario().actualizar_producto(producto_id, cuerpo_json(), usuario_id()))
+
+
+@bp.delete("/catalogos/productos/<int:producto_id>")
+@requiere_rol("admin")
+def eliminar_producto(producto_id: int):
+    return jsonify(inventario().eliminar_producto(producto_id, usuario_id()))
+
+
 @bp.post("/catalogos/presentaciones")
 @requiere_rol("admin")
 def crear_presentacion():
