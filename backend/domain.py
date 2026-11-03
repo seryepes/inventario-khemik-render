@@ -6,6 +6,8 @@ from datetime import date
 from typing import Any
 
 SIN_UBICAR = "SIN UBICAR"
+POSICIONES_PISO = ("PISO PLANTA1", "PISO PLANTA2")
+CAPACIDAD_PISO = 10_000
 _POSICION = re.compile(r"^(?:(\d{1,3})[\s-]*([A-Z]{1,2})|([A-Z]{1,2})[\s-]*(\d{1,3}))$")
 
 

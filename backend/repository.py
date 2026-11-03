@@ -102,6 +102,12 @@ class InventarioRepository:
             query = query.where(m.Movimiento.id != excluir_id)
         return int(self.session.scalar(query) or 0)
 
+    def saldo_total_ubicacion(self, ubicacion_id: int, excluir_id: Optional[int] = None) -> int:
+        query = select(SALDO).where(m.Movimiento.ubicacion_id == ubicacion_id)
+        if excluir_id:
+            query = query.where(m.Movimiento.id != excluir_id)
+        return int(self.session.scalar(query) or 0)
+
     def productos_con_stock_en_ubicacion(
         self, ubicacion_id: int, excluir_id: Optional[int] = None,
     ) -> list[tuple[str, int]]:

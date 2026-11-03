@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from . import models as m
-from .domain import SIN_UBICAR, Movimiento
+from .domain import CAPACIDAD_PISO, POSICIONES_PISO, SIN_UBICAR, Movimiento
 from .repository import InventarioRepository
 
 MAX_REGISTROS_POR_CARGA = 5000
@@ -160,10 +160,16 @@ class InventarioService(ServicioBase):
     @staticmethod
     def _validar_capacidad(repo: InventarioRepository, cantidad: int, presentacion: m.Presentacion,
                            ubicacion: Optional[m.Ubicacion], excluir_id: Optional[int] = None) -> None:
-        capacidad = presentacion.capacidad_por_ubicacion
-        if ubicacion is None or not capacidad:
+        if ubicacion is None:
             return
-        actual = repo.saldo_ubicacion(ubicacion.id, presentacion.id, excluir_id)
+        if ubicacion.codigo in POSICIONES_PISO:
+            capacidad = CAPACIDAD_PISO
+            actual = repo.saldo_total_ubicacion(ubicacion.id, excluir_id)
+        else:
+            capacidad = presentacion.capacidad_por_ubicacion
+            if not capacidad:
+                return
+            actual = repo.saldo_ubicacion(ubicacion.id, presentacion.id, excluir_id)
         if actual + cantidad > capacidad:
             raise ValueError(
                 f"La ubicación {ubicacion.codigo} está llena para {presentacion.nombre}. "
@@ -541,7 +547,7 @@ class InventarioService(ServicioBase):
         with self.transaccion() as repo:
             return {
                 "productos": [
-                    {"nombre": p.nombre, "categoria": p.categoria, "activo": p.activo}
+                    {"id": p.id, "nombre": p.nombre, "categoria": p.categoria, "activo": p.activo}
                     for p in repo.listar_productos()
                 ],
                 "presentaciones": [
@@ -569,6 +575,68 @@ class InventarioService(ServicioBase):
             repo.agregar(m.Producto(nombre=nombre, categoria=categoria))
             repo.registrar_auditoria(usuario_id, "catalogo.producto", f"Producto creado: {nombre} ({categoria})")
         return {"nombre": nombre, "categoria": categoria, "activo": True}
+
+    def actualizar_producto(
+        self, producto_id: int, cambios: dict[str, Any], usuario_id: Optional[int],
+    ) -> dict[str, Any]:
+        campos_permitidos = {"nombre", "categoria", "activo"}
+        if not cambios or not set(cambios).issubset(campos_permitidos):
+            raise ValueError("Indica nombre, categoría o estado para actualizar el producto.")
+        with self.transaccion() as repo:
+            producto = repo.producto_por_id(producto_id, bloquear=True)
+            if producto is None:
+                raise LookupError(f"El producto #{producto_id} no existe.")
+            nombre_anterior = producto.nombre
+            categoria_anterior = producto.categoria
+            activo_anterior = producto.activo
+
+            if "nombre" in cambios:
+                nombre = self._validar_nombre(cambios["nombre"], 60)
+                existente = repo.producto_por_nombre(nombre)
+                if existente is not None and existente.id != producto.id:
+                    raise ConflictoError(f"El producto '{nombre}' ya existe.")
+                producto.nombre = nombre
+            if "categoria" in cambios:
+                categoria = str(cambios["categoria"] or "").strip()
+                if categoria not in m.CATEGORIAS_PRODUCTO:
+                    raise ValueError("La categoría debe ser Producto terminado o Materia prima.")
+                producto.categoria = categoria
+            if "activo" in cambios:
+                if not isinstance(cambios["activo"], bool):
+                    raise ValueError("El estado activo debe ser verdadero o falso.")
+                producto.activo = cambios["activo"]
+
+            repo.registrar_auditoria(
+                usuario_id,
+                "catalogo.producto.editar",
+                f"Producto #{producto.id}: {nombre_anterior} ({categoria_anterior}, "
+                f"{'activo' if activo_anterior else 'inactivo'}) -> "
+                f"{producto.nombre} ({producto.categoria}, {'activo' if producto.activo else 'inactivo'})",
+            )
+            return {
+                "id": producto.id,
+                "nombre": producto.nombre,
+                "categoria": producto.categoria,
+                "activo": producto.activo,
+            }
+
+    def eliminar_producto(self, producto_id: int, usuario_id: Optional[int]) -> dict[str, Any]:
+        with self.transaccion() as repo:
+            producto = repo.producto_por_id(producto_id, bloquear=True)
+            if producto is None:
+                raise LookupError(f"El producto #{producto_id} no existe.")
+            if producto.activo:
+                producto.activo = False
+                repo.registrar_auditoria(
+                    usuario_id, "catalogo.producto.desactivar",
+                    f"Producto desactivado: {producto.nombre} (#{producto.id})",
+                )
+            return {
+                "id": producto.id,
+                "nombre": producto.nombre,
+                "categoria": producto.categoria,
+                "activo": producto.activo,
+            }
 
     def crear_presentacion(self, nombre: Any, capacidad: Any, usuario_id: Optional[int]) -> dict[str, Any]:
         nombre = self._validar_nombre(nombre, 30)

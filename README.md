@@ -41,7 +41,7 @@ auditoria (quién hizo qué y cuándo)          ajustes (clave/valor)
 | Tabla | Para qué |
 |---|---|
 | `productos` | Catálogo de productos (Aluminio, Magnesio, Otro…). |
-| `presentaciones` | 125 kg, 200 kg, Otra… con su `capacidad_por_ubicacion` (5, 4, sin límite). |
+| `presentaciones` | 125 kg, 200 kg, Otra… con su `capacidad_por_ubicacion` (5, 4, sin límite; excepto en posiciones de piso). |
 | `ubicaciones` | Posiciones de la bodega: 44 filas × columnas A–F (`12C`) y dos posiciones de piso. |
 | `estados_lote` | Estado de cada lote de producto, fecha de primer ingreso y cambios manuales. |
 | `movimientos` | Libro de ingresos y salidas. El stock **se calcula** sumando ingresos y restando salidas. |
@@ -50,7 +50,8 @@ auditoria (quién hizo qué y cuándo)          ajustes (clave/valor)
 
 Reglas que aplica el sistema:
 
-- La capacidad de cada posición depende de la presentación.
+- La capacidad de las posiciones depende de la presentación; **PISO PLANTA1** y **PISO PLANTA2** admiten hasta 10.000 unidades cada una, sin importar la presentación o el peso.
+- El administrador puede editar nombre y categoría de los productos. Al borrar un producto se desactiva para nuevos movimientos, conservando el historial y permitiendo reactivarlo.
 - Una ubicación con existencias no admite ingresos de un producto diferente; también se valida en traslados e importaciones.
 - Ningún lote puede quedar con saldo negativo, ni al registrar una salida ni al editar o eliminar un movimiento.
 - Un lote que salió de la bodega no puede volver a ingresar (los traslados internos no cuentan como salida).

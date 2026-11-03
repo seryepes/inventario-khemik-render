@@ -38,6 +38,21 @@ class InventarioServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "está llena"):
             self.guardar(lote="L-2", cantidad=1)
 
+    def test_capacidad_de_piso_es_10000_unidades_sin_importar_presentacion(self):
+        posicion = "PISO PLANTA1"
+        self.guardar(posicion=posicion, cantidad=6000)
+        self.guardar(
+            posicion=posicion, presentacion="200 kg", lote="L-2", cantidad=4000,
+        )
+
+        with self.assertRaisesRegex(ValueError, "Capacidad máxima: 10000 productos"):
+            self.guardar(posicion=posicion, presentacion="200 kg", lote="L-3", cantidad=1)
+
+        posicion_planta2 = "PISO PLANTA2"
+        self.guardar(posicion=posicion_planta2, presentacion="Otra", cantidad=10000)
+        with self.assertRaisesRegex(ValueError, "Capacidad máxima: 10000 productos"):
+            self.guardar(posicion=posicion_planta2, presentacion="Otra", lote="L-4", cantidad=1)
+
     def test_ubicacion_no_acepta_otro_producto_mientras_tiene_stock(self):
         posicion = "PISO PLANTA1"
         self.guardar(posicion=posicion)

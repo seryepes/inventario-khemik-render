@@ -33,9 +33,14 @@ function listeners() {
     document.getElementById('btnLogout').addEventListener('click', cerrarSesion);
     document.getElementById('createUserForm').addEventListener('submit', crearUsuario);
     document.getElementById('createProductForm').addEventListener('submit', crearProducto);
+    document.getElementById('cancelProductEdit').addEventListener('click', resetProductForm);
     document.getElementById('createPresentationForm').addEventListener('submit', crearPresentacion);
     document.getElementById('userList').addEventListener('click', accionUsuario);
-    document.getElementById('modalUsuarios').addEventListener('show.bs.modal', cargarUsuarios);
+    document.getElementById('productCatalogList').addEventListener('click', accionProductoCatalogo);
+    document.getElementById('modalUsuarios').addEventListener('show.bs.modal', () => {
+        cargarUsuarios();
+        cargarCatalogoAdministracion();
+    });
 
     ['searchInput', 'filterProduct', 'filterPres', 'filterMvto'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => { currentPage = 1; renderTabla(); });
@@ -216,15 +221,90 @@ async function accionUsuario(event) {
 async function crearProducto(event) {
     event.preventDefault();
     try {
-        await service.crearProducto(
-            document.getElementById('newProductName').value,
-            document.getElementById('newProductCategory').value
-        );
-        event.target.reset();
+        const form = event.target;
+        const id = form.dataset.productId;
+        const cambios = {
+            nombre: document.getElementById('newProductName').value,
+            categoria: document.getElementById('newProductCategory').value
+        };
+        if (id) await service.actualizarProducto(id, cambios);
+        else await service.crearProducto(cambios.nombre, cambios.categoria);
+        resetProductForm();
         poblarCatalogos();
-        alert('Producto agregado al catálogo.');
+        renderProductosCatalogo();
+        alert(id ? 'Producto actualizado.' : 'Producto agregado al catálogo.');
     } catch (err) {
         alert(err.message);
+    }
+}
+
+function resetProductForm() {
+    const form = document.getElementById('createProductForm');
+    form.reset();
+    delete form.dataset.productId;
+    document.getElementById('saveProductButton').textContent = 'Agregar producto';
+    document.getElementById('cancelProductEditContainer').classList.add('d-none');
+}
+
+async function cargarCatalogoAdministracion() {
+    try {
+        await service.cargarCatalogos();
+        poblarCatalogos();
+        renderProductosCatalogo();
+    } catch (error) {
+        alert(`No se pudo cargar el catálogo de productos: ${error.message}`);
+    }
+}
+
+function renderProductosCatalogo() {
+    const list = document.getElementById('productCatalogList');
+    list.replaceChildren();
+    service.catalogos.productos.forEach(producto => {
+        const item = document.createElement('li');
+        item.className = 'list-group-item d-flex justify-content-between align-items-center gap-2 px-0';
+        const categoria = producto.categoria === 'materia_prima' ? 'Materia prima' : 'Producto terminado';
+        item.innerHTML = `
+            <span class="${producto.activo ? '' : 'text-muted text-decoration-line-through'}">
+                <strong>${esc(producto.nombre)}</strong>
+                <small class="d-block">${categoria} · ${producto.activo ? 'Activo' : 'Inactivo'}</small>
+            </span>
+            <span class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-primary" data-product-action="edit" data-product-id="${producto.id}">Editar</button>
+                <button class="btn btn-sm btn-outline-${producto.activo ? 'danger' : 'success'}"
+                    data-product-action="${producto.activo ? 'delete' : 'restore'}" data-product-id="${producto.id}">
+                    ${producto.activo ? 'Borrar' : 'Reactivar'}
+                </button>
+            </span>`;
+        list.appendChild(item);
+    });
+}
+
+async function accionProductoCatalogo(event) {
+    const boton = event.target.closest('button[data-product-action]');
+    if (!boton) return;
+    const producto = service.catalogos.productos.find(item => item.id === Number(boton.dataset.productId));
+    if (!producto) return;
+    try {
+        if (boton.dataset.productAction === 'edit') {
+            const form = document.getElementById('createProductForm');
+            form.dataset.productId = producto.id;
+            document.getElementById('newProductName').value = producto.nombre;
+            document.getElementById('newProductCategory').value = producto.categoria;
+            document.getElementById('saveProductButton').textContent = 'Guardar cambios';
+            document.getElementById('cancelProductEditContainer').classList.remove('d-none');
+            document.getElementById('newProductName').focus();
+            return;
+        }
+        if (boton.dataset.productAction === 'delete') {
+            if (!confirm(`¿Borrar ${producto.nombre} del catálogo? Se conservará su historial y podrás reactivarlo.`)) return;
+            await service.eliminarProducto(producto.id);
+        } else {
+            await service.actualizarProducto(producto.id, { activo: true });
+        }
+        poblarCatalogos();
+        renderProductosCatalogo();
+    } catch (error) {
+        alert(error.message);
     }
 }
 

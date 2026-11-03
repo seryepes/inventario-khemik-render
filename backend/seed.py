@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from .domain import POSICIONES_PISO
 from .models import Presentacion, Producto, Ubicacion
 
 PRODUCTOS_INICIALES = {
@@ -15,7 +16,6 @@ PRODUCTOS_INICIALES = {
 PRESENTACIONES_INICIALES = {"125 kg": 5, "200 kg": 4, "Otra": None}
 FILAS = range(1, 45)
 COLUMNAS = ("A", "B", "C", "D", "E", "F")
-POSICIONES_PISO = ("PISO PLANTA1", "PISO PLANTA2")
 
 
 def sembrar_catalogos(session_factory: sessionmaker) -> None:
