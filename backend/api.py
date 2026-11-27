@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 from typing import Any
 
 from flask import Blueprint, current_app, g, jsonify, request, session
@@ -233,6 +235,31 @@ def crear_presentacion():
 @requiere_permiso("ver_auditoria")
 def auditoria():
     return jsonify(inventario().auditoria(request.args.get("limite", 100, type=int)))
+
+
+@bp.get("/auditoria/exportar")
+@requiere_permiso("ver_auditoria")
+def exportar_auditoria():
+    registros = inventario().auditoria(500)
+    salida = io.StringIO()
+    salida.write("\ufeff")
+    escritor = csv.writer(salida)
+    escritor.writerow(["Fecha", "Usuario", "Acción", "Detalle"])
+    for registro in registros:
+        escritor.writerow([
+            registro["fecha"],
+            registro["usuario"] or "Sistema",
+            registro["accion"],
+            registro["detalle"],
+        ])
+    return (
+        salida.getvalue(),
+        200,
+        {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": "attachment; filename=auditoria_khemik.csv",
+        },
+    )
 
 
 # --- Inventario ------------------------------------------------------------

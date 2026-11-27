@@ -30,6 +30,8 @@ const pageSize = 15;
 let modalRegistro;
 let modalProductos;
 let modalImportacion;
+let modalConfirmarEliminacion;
+let registroPendienteEliminar = null;
 let importacionActual = null;
 let ultimaImportacionFallidos = [];
 let timerCambioEstadoLote = null;
@@ -38,6 +40,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     modalRegistro = new bootstrap.Modal(document.getElementById('modalRegistro'));
     modalProductos = new bootstrap.Modal(document.getElementById('modalProductosPosicion'));
     modalImportacion = new bootstrap.Modal(document.getElementById('modalImportacion'));
+    modalConfirmarEliminacion = new bootstrap.Modal(document.getElementById('modalConfirmarEliminacion'));
 
     listeners();
     await iniciarAutenticacion();
@@ -56,7 +59,11 @@ function listeners() {
     document.getElementById('customRoleList').addEventListener('click', accionRol);
     document.getElementById('productCatalogList').addEventListener('click', accionProductoCatalogo);
     document.getElementById('modalUsuarios').addEventListener('show.bs.modal', cargarPanelAdministracion);
-    document.getElementById('refreshAuditButton').addEventListener('click', cargarAuditoria);
+    document.getElementById('confirmDeleteCheck').addEventListener('change', event => {
+        document.getElementById('btnConfirmarEliminar').disabled = !event.currentTarget.checked;
+    });
+    document.getElementById('btnConfirmarEliminar').addEventListener('click', confirmarEliminarRegistro);
+    document.getElementById('modalConfirmarEliminacion').addEventListener('hidden.bs.modal', limpiarConfirmacionEliminacion);
 
     ['searchInput', 'filterProduct', 'filterCategoria', 'filterPres', 'filterMvto'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => { currentPage = 1; renderTabla(); });
@@ -245,7 +252,6 @@ async function cargarPanelAdministracion() {
     else document.getElementById('userList').replaceChildren();
     if (permisos.has('gestionar_catalogos')) tareas.push(cargarCatalogoAdministracion());
     if (usuarioActual?.role === 'admin') tareas.push(cargarRoles());
-    if (permisos.has('ver_auditoria')) tareas.push(cargarAuditoria());
     await Promise.all(tareas);
 }
 
@@ -393,23 +399,6 @@ async function accionRol(event) {
         await cargarUsuarios();
     } catch (err) {
         alert(err.message);
-    }
-}
-
-async function cargarAuditoria() {
-    const lista = document.getElementById('auditList');
-    lista.replaceChildren();
-    try {
-        const registros = await service.listarAuditoria();
-        lista.replaceChildren(...registros.map(registro => {
-            const item = document.createElement('li');
-            item.className = 'list-group-item small';
-            item.innerHTML = `<strong>${esc(registro.accion)}</strong> · ${esc(registro.usuario || 'Sistema')}
-                <div>${esc(registro.detalle)}</div><time class="text-muted">${esc(registro.fecha)}</time>`;
-            return item;
-        }));
-    } catch (err) {
-        lista.textContent = err.message;
     }
 }
 
@@ -618,7 +607,7 @@ function renderTabla() {
         });
 
         document.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', (e) => editarRegistro(e.currentTarget.dataset.id)));
-        document.querySelectorAll('.btn-delete').forEach(b => b.addEventListener('click', (e) => eliminarRegistro(e.currentTarget.dataset.id)));
+        document.querySelectorAll('.btn-delete').forEach(b => b.addEventListener('click', (e) => prepararEliminacionRegistro(e.currentTarget.dataset.id)));
     }
 
     const sumaPagina = pageData.reduce((acc, i) => acc + i.cantidad, 0);
@@ -1011,15 +1000,60 @@ async function guardarRegistro(e) {
     }
 }
 
-async function eliminarRegistro(id) {
-    if (confirm(`¿Eliminar el registro #${id}?`)) {
-        try {
-            await service.eliminarRegistro(id);
-            actualizarEstadoGeneral();
-        } catch (err) {
-            alert("Error al eliminar: " + err.message);
-        }
+function prepararEliminacionRegistro(id) {
+    const registro = service.movimientos.find(item => item.id === Number(id));
+    if (!registro) {
+        alert('No se encontró el registro. Actualiza la lista e inténtalo nuevamente.');
+        return;
     }
+
+    registroPendienteEliminar = registro.id;
+    document.getElementById('deleteRecordId').textContent = `#${registro.id}`;
+    document.getElementById('deleteRecordDate').textContent = registro.FechaFormateada;
+    document.getElementById('deleteRecordMovement').textContent = registro.mvto;
+    document.getElementById('deleteRecordPosition').textContent =
+        registro.posicionDestino ? `${registro.posicion} → ${registro.posicionDestino}` : registro.posicion;
+    document.getElementById('deleteRecordProduct').textContent = registro.producto;
+    document.getElementById('deleteRecordPresentation').textContent = registro.presentacion;
+    document.getElementById('deleteRecordLot').textContent = registro.lote;
+    document.getElementById('deleteRecordQuantity').textContent = `${registro.cantidad} unidades`;
+    document.getElementById('deleteRecordObservations').textContent = registro.observaciones || 'Sin observaciones';
+
+    document.getElementById('confirmDeleteCheck').checked = false;
+    document.getElementById('confirmDeleteCheck').disabled = false;
+    document.getElementById('btnConfirmarEliminar').disabled = true;
+    document.getElementById('deleteRecordError').classList.add('d-none');
+    modalConfirmarEliminacion.show();
+}
+
+async function confirmarEliminarRegistro() {
+    const checkbox = document.getElementById('confirmDeleteCheck');
+    if (registroPendienteEliminar === null || !checkbox.checked) return;
+
+    const boton = document.getElementById('btnConfirmarEliminar');
+    const error = document.getElementById('deleteRecordError');
+    const id = registroPendienteEliminar;
+    checkbox.disabled = true;
+    boton.disabled = true;
+    error.classList.add('d-none');
+
+    try {
+        await service.eliminarRegistro(id);
+        modalConfirmarEliminacion.hide();
+        actualizarEstadoGeneral();
+    } catch (err) {
+        error.textContent = `No se pudo eliminar el registro: ${err.message}`;
+        error.classList.remove('d-none');
+        checkbox.disabled = false;
+        boton.disabled = !checkbox.checked;
+    }
+}
+
+function limpiarConfirmacionEliminacion() {
+    registroPendienteEliminar = null;
+    document.getElementById('confirmDeleteCheck').checked = false;
+    document.getElementById('confirmDeleteCheck').disabled = false;
+    document.getElementById('btnConfirmarEliminar').disabled = true;
 }
 
 async function borrarTodo() {

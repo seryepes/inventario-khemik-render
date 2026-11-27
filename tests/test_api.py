@@ -298,6 +298,15 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Stock insuficiente", response.json["error"])
         self.assertEqual(self.client.get("/api/no-existe").status_code, 404)
 
+    def test_descarga_auditoria_es_csv_sin_mostrar_registros_en_json(self):
+        self.setup_admin()
+        response = self.client.get("/api/auditoria/exportar")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "text/csv")
+        self.assertIn("attachment", response.headers["Content-Disposition"])
+        texto = response.data.decode("utf-8-sig")
+        self.assertIn("Fecha,Usuario,Acción,Detalle", texto)
+
     def test_crear_producto_exige_categoria_y_la_publica_en_catalogo(self):
         self.setup_admin()
         sin_categoria = self.post("/api/catalogos/productos", {"nombre": "Cobre"})
