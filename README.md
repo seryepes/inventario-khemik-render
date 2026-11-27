@@ -69,13 +69,17 @@ Reglas que aplica el sistema:
 | `operador` | Ver, registrar, editar y eliminar movimientos y traslados; cambiar estados de lotes y marcar posiciones peligrosas. |
 | `consulta` | Solo ver. |
 
-La primera cuenta creada en una instalación nueva es superadministradora. Para designar a `Gerente1` en una instalación ya existente, ejecuta una sola vez desde el entorno conectado a la base de datos:
+La primera cuenta creada en una instalación nueva es superadministradora. En una instalación existente, `Gerente1` puede activar una sola vez el rol desde **Administración → Activar administrador principal**, después de iniciar sesión como administrador. La activación exige el código privado `KHEMIK_SUPERADMIN_SETUP_TOKEN`, y solo acepta el usuario `KHEMIK_SUPERADMIN_USERNAME` (por defecto, `Gerente1`). Render lo genera al crear el servicio mediante `render.yaml`; en servicios existentes, agrega o sincroniza esas variables en **Render → servicio → Environment**. Después de activar la cuenta, se puede quitar el token del entorno.
+
+Como alternativa de mantenimiento, la cuenta se puede promover desde un entorno conectado a la base de datos con `python -m scripts.promover_superadministrador Gerente1`. En el plan gratuito de Render no hay Shell; el comando puede ejecutarse desde PowerShell local y solicita `DATABASE_URL` de forma oculta si no está configurada.
+
+Si se olvidó la contraseña de `Gerente1`, restablece el acceso con este comando. En el plan gratuito, ejecútalo desde PowerShell local y pega la variable `DATABASE_URL` de Render cuando se solicite; tanto la conexión como la nueva contraseña se solicitan de forma oculta:
 
 ```powershell
-python -m scripts.promover_superadministrador Gerente1
+python -m scripts.recuperar_superadministrador Gerente1
 ```
 
-En Render, ejecuta el comando desde Shell con el entorno de la aplicación. La operación falla si no encuentra la cuenta o ya existe otra cuenta superadministradora.
+La cuenta existente se activa y promueve a superadministradora si todavía no hay otra cuenta superadministradora.
 
 ## Uso local (Windows)
 

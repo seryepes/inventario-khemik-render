@@ -173,6 +173,66 @@ class UsuarioService(ServicioBase):
             repo.registrar_auditoria(usuario.id, "usuario.promover_superadmin", f"Superadministrador: {nombre}")
             return self.publico(self.a_dict(usuario))
 
+    def superadmin_bootstrap_disponible(self) -> bool:
+        with self.transaccion() as repo:
+            return (
+                repo.contar_superadmins() == 0
+                and repo.obtener_ajuste("superadmin_bootstrap_used") != "true"
+            )
+
+    def activar_superadministrador_inicial(self, usuario_id: int, username_configurado: str) -> dict[str, Any]:
+        nombre_configurado = self.validar_username(username_configurado)
+        with self.transaccion() as repo:
+            repo.bloquear_tabla_usuarios()
+            usuario = repo.usuario_por_id(usuario_id)
+            if usuario is None or not usuario.activo or usuario.rol != "admin":
+                raise PermissionError("Solo una cuenta administradora activa puede completar esta activación.")
+            if usuario.username != nombre_configurado:
+                raise PermissionError("Esta cuenta no está autorizada para activar el superadministrador.")
+            if repo.contar_superadmins() or repo.obtener_ajuste("superadmin_bootstrap_used") == "true":
+                raise ConflictoError("La activación del superadministrador ya fue completada.")
+
+            usuario.es_superadmin = True
+            repo.guardar_ajuste("superadmin_bootstrap_used", "true")
+            repo.registrar_auditoria(
+                usuario.id, "usuario.activar_superadmin",
+                f"Superadministrador activado desde el panel: {nombre_configurado}",
+            )
+            return self.publico(self.a_dict(usuario))
+
+    def validar_recuperacion_superadministrador(self, username: Any) -> None:
+        nombre = self.validar_username(username)
+        with self.transaccion() as repo:
+            repo.bloquear_tabla_usuarios()
+            usuario = repo.usuario_por_username(nombre)
+            if usuario is None:
+                raise LookupError(f"No existe la cuenta '{nombre}'.")
+            if not usuario.es_superadmin and repo.contar_superadmins():
+                raise ConflictoError("Ya existe otra cuenta superadministradora.")
+
+    def recuperar_superadministrador(self, username: Any, password: Any) -> dict[str, Any]:
+        nombre = self.validar_username(username)
+        clave = self.validar_password(password, nombre)
+        with self.transaccion() as repo:
+            repo.bloquear_tabla_usuarios()
+            usuario = repo.usuario_por_username(nombre)
+            if usuario is None:
+                raise LookupError(f"No existe la cuenta '{nombre}'.")
+            if not usuario.es_superadmin:
+                if repo.contar_superadmins():
+                    raise ConflictoError("Ya existe otra cuenta superadministradora.")
+                usuario.rol = "admin"
+                usuario.es_superadmin = True
+            usuario.password_hash = generate_password_hash(clave)
+            usuario.activo = True
+            usuario.intentos_fallidos = 0
+            usuario.bloqueado_hasta = None
+            repo.registrar_auditoria(
+                usuario.id, "usuario.recuperar_superadmin",
+                f"Acceso de superadministrador restablecido: {nombre}",
+            )
+            return self.publico(self.a_dict(usuario))
+
     def actualizar(self, username: str, cambios: dict[str, Any], actor_id: Optional[int],
                    actor_rol: str) -> dict[str, Any]:
         with self.transaccion() as repo:

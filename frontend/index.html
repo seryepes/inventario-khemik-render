@@ -515,6 +515,14 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+                    <form id="activarSuperadminForm" class="border border-warning rounded p-3 mb-4 d-none">
+                        <div class="fw-semibold mb-2">Activar administrador principal</div>
+                        <div class="form-text mb-2">Esta activación única entrega todos los permisos a la cuenta Gerente1.</div>
+                        <label class="form-label" for="superadminActivationToken">Código de activación</label>
+                        <input class="form-control mb-2" id="superadminActivationToken" type="password" required autocomplete="one-time-code">
+                        <div class="alert alert-danger d-none" id="superadminActivationError" role="alert"></div>
+                        <button class="btn btn-warning w-100" type="submit">Activar cuenta principal</button>
+                    </form>
                     <form id="createUserForm" class="border rounded p-3 mb-4">
                         <div class="fw-semibold mb-3">Crear cuenta de ingreso</div>
                         <label class="form-label" for="newUsername">Usuario</label>

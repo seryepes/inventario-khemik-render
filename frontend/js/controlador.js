@@ -37,6 +37,7 @@ function listeners() {
     document.getElementById('authForm').addEventListener('submit', autenticar);
     document.getElementById('btnLogout').addEventListener('click', cerrarSesion);
     document.getElementById('createUserForm').addEventListener('submit', crearUsuario);
+    document.getElementById('activarSuperadminForm').addEventListener('submit', activarSuperadministrador);
     document.getElementById('createProductForm').addEventListener('submit', crearProducto);
     document.getElementById('cancelProductEdit').addEventListener('click', resetProductForm);
     document.getElementById('createPresentationForm').addEventListener('submit', crearPresentacion);
@@ -86,7 +87,7 @@ async function iniciarAutenticacion() {
     try {
         const status = await service.authStatus();
         if (status.user) {
-            mostrarAplicacion(status.user);
+            mostrarAplicacion(status.user, status.superadminActivationAvailable);
             await cargarAplicacion();
             return;
         }
@@ -113,10 +114,11 @@ function configurarFormularioAcceso(configuracionInicial) {
     document.getElementById('authScreen').classList.remove('d-none');
 }
 
-function mostrarAplicacion(user) {
+function mostrarAplicacion(user, puedeActivarSuperadmin = false) {
     document.getElementById('authScreen').classList.add('d-none');
     document.getElementById('currentUser').textContent = `${user.username} · ${ROLES[user.role] || user.role}`;
     document.getElementById('btnUsuarios').classList.toggle('d-none', !['admin', 'superadmin'].includes(user.role));
+    document.getElementById('activarSuperadminForm').classList.toggle('d-none', !puedeActivarSuperadmin);
     // style.css oculta los controles que el rol no puede usar; el backend igual valida cada permiso.
     document.body.dataset.rol = user.role;
 }
@@ -201,6 +203,21 @@ async function crearUsuario(event) {
         );
         event.target.reset();
         await cargarUsuarios();
+    } catch (err) {
+        error.textContent = err.message;
+        error.classList.remove('d-none');
+    }
+}
+
+async function activarSuperadministrador(event) {
+    event.preventDefault();
+    const error = document.getElementById('superadminActivationError');
+    error.classList.add('d-none');
+    try {
+        await service.activarSuperadministrador(
+            document.getElementById('superadminActivationToken').value
+        );
+        window.location.reload();
     } catch (err) {
         error.textContent = err.message;
         error.classList.remove('d-none');

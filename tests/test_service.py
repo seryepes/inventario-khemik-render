@@ -77,6 +77,15 @@ class InventarioServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Ya existe una cuenta superadministradora"):
             usuarios.promover_a_superadministrador("otro")
 
+    def test_recuperar_acceso_superadmin_restablece_contrasena_y_activa_cuenta(self):
+        usuarios = UsuarioService(self.session_factory)
+        usuarios.crear("Gerente1", "clave-anterior", "admin", None)
+
+        recuperado = usuarios.recuperar_superadministrador("Gerente1", "clave-nueva-segura")
+
+        self.assertEqual(recuperado["role"], "superadmin")
+        self.assertEqual(usuarios.autenticar("Gerente1", "clave-nueva-segura")["role"], "superadmin")
+
     def test_capacidad_por_posicion(self):
         self.guardar(cantidad=5)
         with self.assertRaisesRegex(ValueError, "está llena"):

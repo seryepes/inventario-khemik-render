@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 
 from backend import create_app
+from backend.models import Usuario
+from sqlalchemy import update
 
 CSRF = {"X-Khemik-Request": "1"}
 
@@ -14,6 +16,8 @@ class ApiTests(unittest.TestCase):
             "DATABASE_URL": f"sqlite:///{Path(self.temp_dir.name) / 'api.db'}",
             "SECRET_KEY": "test-secret",
             "PRODUCTION": False,
+            "SUPERADMIN_SETUP_USERNAME": "gerente1",
+            "SUPERADMIN_SETUP_TOKEN": "test-activation-token",
         })
         self.client = self.app.test_client()
 
@@ -90,6 +94,47 @@ class ApiTests(unittest.TestCase):
             administrador,
         )
         self.assertEqual(crear_superadmin.status_code, 400)
+
+    def test_gerente_activa_el_unico_superadministrador_desde_el_panel(self):
+        self.setup_admin()
+        self.post(
+            "/api/auth/users",
+            {"username": "Gerente1", "password": "clave-segura", "role": "admin"},
+        )
+        gerente = self.crear_y_entrar("Gerente1", "admin")
+
+        session_factory = self.app.extensions["khemik"]["usuarios"]._session_factory
+        with session_factory.begin() as db_session:
+            db_session.execute(
+                update(Usuario).where(Usuario.username == "admin").values(es_superadmin=False)
+            )
+
+        self.assertTrue(gerente.get("/api/auth/status").json["superadminActivationAvailable"])
+        otro_admin = self.crear_y_entrar("otroadmin", "admin")
+        self.assertEqual(
+            self.post(
+                "/api/auth/superadmin/activate",
+                {"token": "test-activation-token"},
+                otro_admin,
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.post(
+                "/api/auth/superadmin/activate",
+                {"token": "incorrecto"},
+                gerente,
+            ).status_code,
+            403,
+        )
+        activacion = self.post(
+            "/api/auth/superadmin/activate",
+            {"token": "test-activation-token"},
+            gerente,
+        )
+        self.assertEqual(activacion.status_code, 200)
+        self.assertEqual(activacion.json["user"]["role"], "superadmin")
+        self.assertFalse(gerente.get("/api/auth/status").json["superadminActivationAvailable"])
 
     def test_admin_y_operador_pueden_marcar_posicion_peligrosa(self):
         self.setup_admin()

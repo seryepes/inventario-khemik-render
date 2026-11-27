@@ -1,4 +1,6 @@
 import argparse
+import os
+from getpass import getpass
 
 from backend import create_app
 from backend.service import ConflictoError
@@ -11,7 +13,10 @@ def main() -> None:
     parser.add_argument("usuario", help="Nombre de usuario existente que se promoverá.")
     argumentos = parser.parse_args()
 
-    app = create_app()
+    if not os.environ.get("DATABASE_URL"):
+        os.environ["DATABASE_URL"] = getpass("DATABASE_URL de Render (entrada oculta): ").strip()
+
+    app = create_app({"SECRET_KEY": "maintenance-cli"})
     usuarios = app.extensions["khemik"]["usuarios"]
     try:
         usuario = usuarios.promover_a_superadministrador(argumentos.usuario)

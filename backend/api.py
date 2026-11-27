@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 from typing import Any
 
 from flask import Blueprint, current_app, g, jsonify, request, session
@@ -114,7 +115,18 @@ def health():
 @bp.get("/auth/status")
 def auth_status():
     usuario = UsuarioService.publico(g.usuario) if g.usuario else None
-    return jsonify({"setupRequired": not usuarios().hay_usuarios(), "user": usuario})
+    puede_activar_superadmin = bool(
+        g.usuario
+        and g.usuario["role"] == "admin"
+        and g.usuario["username"] == current_app.config["SUPERADMIN_SETUP_USERNAME"]
+        and current_app.config["SUPERADMIN_SETUP_TOKEN"]
+        and usuarios().superadmin_bootstrap_disponible()
+    )
+    return jsonify({
+        "setupRequired": not usuarios().hay_usuarios(),
+        "user": usuario,
+        "superadminActivationAvailable": puede_activar_superadmin,
+    })
 
 
 @bp.post("/auth/setup")
@@ -139,6 +151,21 @@ def auth_login():
 def auth_logout():
     session.clear()
     return jsonify({"ok": True})
+
+
+@bp.post("/auth/superadmin/activate")
+@requiere_rol("admin")
+def auth_activar_superadmin():
+    token_configurado = current_app.config["SUPERADMIN_SETUP_TOKEN"]
+    if not token_configurado:
+        return error("La activación segura no está configurada.", 503)
+    token_recibido = str(cuerpo_json().get("token") or "")
+    if not hmac.compare_digest(token_recibido, token_configurado):
+        return error("El código de activación no es válido.", 403)
+    usuario = usuarios().activar_superadministrador_inicial(
+        usuario_id(), current_app.config["SUPERADMIN_SETUP_USERNAME"],
+    )
+    return jsonify({"user": usuario})
 
 
 @bp.get("/auth/users")
