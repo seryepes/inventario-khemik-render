@@ -33,15 +33,27 @@ class InventarioServiceTests(unittest.TestCase):
         self.guardar()
         self.assertEqual(self.service.stock()[0]["cantidad"], 2)
 
-    def test_movimiento_registra_una_presentacion_manual_en_el_catalogo(self):
-        movimiento = self.service.guardar_movimiento(
-            self.movimiento(presentacion="  Saco   de 50 kg ", crearPresentacionManual=True),
-            None,
-        )
+    def test_presentacion_en_kg_ingresada_manualmente_funciona_en_ambas_categorias(self):
+        for producto, posicion, lote in (
+            ("Aluminio", "1A", "A-50"),
+            ("Otro", "1B", "MP-50"),
+        ):
+            with self.subTest(producto=producto):
+                movimiento = self.service.guardar_movimiento(
+                    self.movimiento(
+                        producto=producto,
+                        posicion=posicion,
+                        lote=lote,
+                        presentacion="50 kg",
+                        crearPresentacionManual=True,
+                    ),
+                    None,
+                )
+                self.assertEqual(movimiento["presentacion"], "50 kg")
+                self.assertEqual(movimiento["producto"], producto)
 
-        self.assertEqual(movimiento["presentacion"], "Saco de 50 kg")
         self.assertIn(
-            "Saco de 50 kg",
+            "50 kg",
             [presentacion["nombre"] for presentacion in self.service.catalogos()["presentaciones"]],
         )
 
