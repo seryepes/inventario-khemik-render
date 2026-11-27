@@ -64,6 +64,20 @@ class InventarioServiceTests(unittest.TestCase):
                 None,
             )
 
+    def test_catalogo_acepta_producto_rechazado_y_otros(self):
+        for categoria in ("producto_rechazado", "otros"):
+            with self.subTest(categoria=categoria):
+                creado = self.service.crear_producto(
+                    f"Producto {categoria}",
+                    categoria,
+                    None,
+                )
+                self.assertEqual(creado["categoria"], categoria)
+
+        productos = self.service.catalogos()["productos"]
+        categorias = {producto["categoria"] for producto in productos}
+        self.assertTrue({"producto_rechazado", "otros"} <= categorias)
+
     def test_ubicacion_permite_varios_productos_y_mas_de_dos_unidades(self):
         posicion = "1A"
         self.guardar(posicion=posicion, cantidad=6)

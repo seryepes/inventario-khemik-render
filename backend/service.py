@@ -545,7 +545,10 @@ class InventarioService(ServicioBase):
         nombre = self._validar_nombre(nombre, 60)
         categoria = str(categoria or "").strip()
         if categoria not in m.CATEGORIAS_PRODUCTO:
-            raise ValueError("La categoría debe ser Producto terminado o Materia prima.")
+            raise ValueError(
+                "La categoría debe ser Producto terminado, Materia prima, "
+                "Producto rechazado u Otros."
+            )
         with self.transaccion() as repo:
             if repo.producto_por_nombre(nombre):
                 raise ConflictoError(f"El producto '{nombre}' ya existe.")
@@ -576,7 +579,10 @@ class InventarioService(ServicioBase):
             if "categoria" in cambios:
                 categoria = str(cambios["categoria"] or "").strip()
                 if categoria not in m.CATEGORIAS_PRODUCTO:
-                    raise ValueError("La categoría debe ser Producto terminado o Materia prima.")
+                    raise ValueError(
+                        "La categoría debe ser Producto terminado, Materia prima, "
+                        "Producto rechazado u Otros."
+                    )
                 producto.categoria = categoria
             if "activo" in cambios:
                 if not isinstance(cambios["activo"], bool):
