@@ -334,9 +334,10 @@ function llenarSelect(id, nombres, opcionVacia = null) {
 
 function poblarCatalogos() {
     const { productos, presentaciones, ubicaciones } = service.catalogos;
-    const presentacionesActivas = presentaciones.filter(p => p.activo).map(p => p.nombre);
     actualizarProductosPorCategoria();
-    llenarSelect('formPresentacion', presentacionesActivas);
+    document.getElementById('listaPresentaciones').replaceChildren(
+        ...presentaciones.filter(p => p.activo).map(p => new Option(p.nombre))
+    );
     llenarSelect('filterProduct', productos.map(p => p.nombre), 'Todos los Productos');
     llenarSelect('filterPres', presentaciones.map(p => p.nombre), 'Todas Presentaciones');
     const lista = document.getElementById('listaPosiciones');
@@ -780,15 +781,29 @@ async function guardarRegistro(e) {
         cantidad: document.getElementById('formCantidad').value,
         observaciones: document.getElementById('formObservaciones').value
     };
+    datos.crearPresentacionManual = !service.catalogos.presentaciones.some(
+        presentacion => presentacion.activo &&
+            presentacion.nombre.toLocaleLowerCase() === datos.presentacion.trim().toLocaleLowerCase()
+    );
 
     try {
+        let resultado;
         if (datos.mvto === 'Traslado') {
             if (datos.id) {
                 throw new Error('Un traslado existente no se puede editar como un movimiento individual.');
             }
-            await service.guardarTraslado(datos);
+            resultado = await service.guardarTraslado(datos);
         } else {
-            await service.guardarMovimiento(datos);
+            resultado = await service.guardarMovimiento(datos);
+        }
+        if (datos.crearPresentacionManual) {
+            const nombre = Array.isArray(resultado) ? resultado[0]?.presentacion : resultado?.presentacion;
+            if (nombre && !service.catalogos.presentaciones.some(
+                presentacion => presentacion.nombre.toLocaleLowerCase() === nombre.toLocaleLowerCase()
+            )) {
+                service.catalogos.presentaciones.push({ nombre, capacidad: null, activo: true });
+            }
+            poblarCatalogos();
         }
         modalRegistro.hide();
         actualizarEstadoGeneral();

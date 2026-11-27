@@ -127,7 +127,8 @@ class InventarioService(ServicioBase):
         return ubicacion
 
     def _resolver(self, repo: InventarioRepository, mov: Movimiento, bloquear: bool = True,
-                  crear_faltantes: bool = False) -> tuple[m.Producto, m.Presentacion, Optional[m.Ubicacion]]:
+                  crear_faltantes: bool = False, crear_presentacion_manual: bool = False
+                  ) -> tuple[m.Producto, m.Presentacion, Optional[m.Ubicacion]]:
         # Bloquear la fila del producto serializa las escrituras concurrentes de ese producto
         # (en PostgreSQL); así dos usuarios no pueden sacar el mismo stock a la vez.
         producto = repo.producto_por_nombre(mov.producto, bloquear=bloquear)
@@ -137,6 +138,9 @@ class InventarioService(ServicioBase):
                 "Un administrador debe crearlo y asignarle una categoría."
             )
         presentacion = repo.presentacion_por_nombre(mov.presentacion)
+        if presentacion is None and crear_presentacion_manual:
+            nombre_presentacion = self._validar_nombre(mov.presentacion, 30)
+            presentacion = repo.agregar(m.Presentacion(nombre=nombre_presentacion))
         if presentacion is None and crear_faltantes:
             presentacion = repo.agregar(m.Presentacion(nombre=mov.presentacion[:30]))
         if presentacion is None or not presentacion.activo:
@@ -219,7 +223,8 @@ class InventarioService(ServicioBase):
             traslado_id=traslado_id, creado_por_id=usuario_id,
         )
 
-    def _registrar(self, repo: InventarioRepository, mov: Movimiento, usuario_id: Optional[int]) -> m.Movimiento:
+    def _registrar(self, repo: InventarioRepository, mov: Movimiento, usuario_id: Optional[int],
+                   crear_presentacion_manual: bool = False) -> m.Movimiento:
         """Crea o edita un movimiento individual aplicando todas las reglas."""
         mov.traslado_id, mov.es_traslado = None, False
         claves: dict[Clave, str] = {}
@@ -232,7 +237,9 @@ class InventarioService(ServicioBase):
                 raise ValueError("Los movimientos de un traslado no se editan: elimina el traslado y regístralo de nuevo.")
             claves[self._clave(fila)] = fila.ubicacion.codigo if fila.ubicacion else SIN_UBICAR
 
-        producto, presentacion, ubicacion = self._resolver(repo, mov)
+        producto, presentacion, ubicacion = self._resolver(
+            repo, mov, crear_presentacion_manual=crear_presentacion_manual,
+        )
         self._validar_reglas(repo, mov, producto, presentacion, ubicacion)
         nuevo_movimiento = fila is None
         saldo_sin_lote_antes = (
@@ -286,7 +293,10 @@ class InventarioService(ServicioBase):
     def guardar_movimiento(self, data: dict[str, Any], usuario_id: Optional[int]) -> dict[str, Any]:
         mov = Movimiento.from_dict(data)
         with self.transaccion() as repo:
-            fila = self._registrar(repo, mov, usuario_id)
+            fila = self._registrar(
+                repo, mov, usuario_id,
+                crear_presentacion_manual=bool(data.get("crearPresentacionManual")),
+            )
             repo.registrar_auditoria(usuario_id, "movimiento.editar" if mov.id else "movimiento.crear", self._describir(fila))
             return self._a_dominio(fila).to_dict()
 
@@ -300,7 +310,9 @@ class InventarioService(ServicioBase):
             raise ValueError("La cantidad debe ser mayor que cero.")
         mov.mvto = "Salida"
         with self.transaccion() as repo:
-            producto, presentacion, origen = self._resolver(repo, mov)
+            producto, presentacion, origen = self._resolver(
+                repo, mov, crear_presentacion_manual=bool(data.get("crearPresentacionManual")),
+            )
             destino = self._resolver_ubicacion(repo, mov.posicion_destino, bloquear=True)
             disponible = repo.saldo_lote(origen.id, producto.id, presentacion.id, mov.lote)
             if mov.cantidad > disponible:

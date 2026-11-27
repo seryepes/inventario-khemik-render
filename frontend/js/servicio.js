@@ -129,16 +129,18 @@ export class InventarioService {
 
     async guardarMovimiento(datos) {
         const id = datos.id ? `/${datos.id}` : '';
-        await request(`/movimientos${id}`, {
+        const resultado = await request(`/movimientos${id}`, {
             method: datos.id ? 'PUT' : 'POST',
             body: JSON.stringify(datos)
         });
         await this.cargarDatos();
+        return resultado;
     }
 
     async guardarTraslado(datos) {
-        await request('/traslados', { method: 'POST', body: JSON.stringify(datos) });
+        const resultado = await request('/traslados', { method: 'POST', body: JSON.stringify(datos) });
         await this.cargarDatos();
+        return resultado;
     }
 
     async eliminarRegistro(id) {

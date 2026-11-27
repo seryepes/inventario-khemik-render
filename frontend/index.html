@@ -422,7 +422,7 @@
                             </div>
                             <div class="col-md-6">
                                 <label for="formPresentacion" class="form-label fw-semibold">Presentación</label>
-                                <select class="form-select" id="formPresentacion" required></select>
+                                <input class="form-control" id="formPresentacion" list="listaPresentaciones" maxlength="30" autocomplete="off" required>
                             </div>
                             <div class="col-md-12">
                                 <label for="formCantidad" class="form-label fw-semibold">Cantidad</label>
@@ -435,6 +435,7 @@
                         </div>
                     </div>
                     <datalist id="listaPosiciones"></datalist>
+                    <datalist id="listaPresentaciones"></datalist>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                         <button type="submit" class="btn btn-primary fw-bold">Guardar</button>
