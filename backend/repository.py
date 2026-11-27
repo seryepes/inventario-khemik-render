@@ -222,16 +222,6 @@ class InventarioRepository:
         query = select(func.count(m.Usuario.id)).where(m.Usuario.rol == "admin", m.Usuario.activo.is_(True))
         return self.session.scalar(query) or 0
 
-    def contar_superadmins(self) -> int:
-        query = select(func.count(m.Usuario.id)).where(m.Usuario.es_superadmin.is_(True))
-        return self.session.scalar(query) or 0
-
-    def contar_superadmins_activos(self) -> int:
-        query = select(func.count(m.Usuario.id)).where(
-            m.Usuario.es_superadmin.is_(True), m.Usuario.activo.is_(True),
-        )
-        return self.session.scalar(query) or 0
-
     # --- Auditoría y ajustes ---------------------------------------------
 
     def registrar_auditoria(self, usuario_id: Optional[int], accion: str, detalle: str = "") -> None:

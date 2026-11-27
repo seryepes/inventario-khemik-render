@@ -9,7 +9,6 @@ from backend.database import inicializar_base
 from backend.domain import Movimiento
 from backend.models import EstadoLote, Movimiento as MovimientoModel, ahora
 from backend.service import InventarioService
-from backend.usuarios import UsuarioService
 
 
 class InventarioServiceTests(unittest.TestCase):
@@ -64,27 +63,6 @@ class InventarioServiceTests(unittest.TestCase):
                 self.movimiento(presentacion="P" * 31, crearPresentacionManual=True),
                 None,
             )
-
-    def test_promover_cuenta_existente_a_superadministrador(self):
-        usuarios = UsuarioService(self.session_factory)
-        usuarios.crear("Gerente1", "clave-segura", "admin", None)
-
-        promovido = usuarios.promover_a_superadministrador("Gerente1")
-
-        self.assertEqual(promovido["username"], "gerente1")
-        self.assertEqual(promovido["role"], "superadmin")
-        usuarios.crear("otro", "clave-segura", "admin", None)
-        with self.assertRaisesRegex(ValueError, "Ya existe una cuenta superadministradora"):
-            usuarios.promover_a_superadministrador("otro")
-
-    def test_recuperar_acceso_superadmin_restablece_contrasena_y_activa_cuenta(self):
-        usuarios = UsuarioService(self.session_factory)
-        usuarios.crear("Gerente1", "clave-anterior", "admin", None)
-
-        recuperado = usuarios.recuperar_superadministrador("Gerente1", "clave-nueva-segura")
-
-        self.assertEqual(recuperado["role"], "superadmin")
-        self.assertEqual(usuarios.autenticar("Gerente1", "clave-nueva-segura")["role"], "superadmin")
 
     def test_capacidad_por_posicion(self):
         self.guardar(cantidad=5)

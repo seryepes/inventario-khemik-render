@@ -65,13 +65,6 @@ export class InventarioService {
         return request('/auth/status');
     }
 
-    async activarSuperadministrador(token) {
-        return request('/auth/superadmin/activate', {
-            method: 'POST',
-            body: JSON.stringify({ token })
-        });
-    }
-
     async iniciarSesion(username, password, setup = false) {
         return request(setup ? '/auth/setup' : '/auth/login', {
             method: 'POST',

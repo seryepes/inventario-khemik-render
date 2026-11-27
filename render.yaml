@@ -15,10 +15,6 @@ services:
         value: production
       - key: KHEMIK_SECRET_KEY
         generateValue: true
-      - key: KHEMIK_SUPERADMIN_USERNAME
-        value: Gerente1
-      - key: KHEMIK_SUPERADMIN_SETUP_TOKEN
-        generateValue: true
       # Cadena de conexión de Neon; Render la pide al crear el servicio.
       - key: DATABASE_URL
         sync: false

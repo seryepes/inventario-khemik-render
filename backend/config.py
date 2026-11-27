@@ -34,8 +34,6 @@ def cargar_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         "MAX_CONTENT_LENGTH": 5 * 1024 * 1024,
         "LOGIN_MAX_INTENTOS": int(_env("KHEMIK_LOGIN_MAX_INTENTOS", "5")),
         "LOGIN_BLOQUEO_MINUTOS": int(_env("KHEMIK_LOGIN_BLOQUEO_MINUTOS", "15")),
-        "SUPERADMIN_SETUP_USERNAME": _env("KHEMIK_SUPERADMIN_USERNAME", "Gerente1").lower(),
-        "SUPERADMIN_SETUP_TOKEN": _env("KHEMIK_SUPERADMIN_SETUP_TOKEN"),
     }
     config.update(overrides)
     if config["PRODUCTION"] and not config["SECRET_KEY"]:

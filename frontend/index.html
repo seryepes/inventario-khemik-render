@@ -67,7 +67,7 @@
                     <i class="fa-solid fa-upload me-1"></i>Restaurar JSON
                 </label>
                 <input type="file" id="backupFileInput" accept=".json,application/json" class="d-none">
-                <button class="btn btn-danger btn-sm fw-semibold solo-superadmin" id="btnBorrarTodo">
+                <button class="btn btn-danger btn-sm fw-semibold solo-admin" id="btnBorrarTodo">
                     <i class="fa-solid fa-trash-can me-1"></i>Borrar Todo
                 </button>
                 <span class="badge bg-secondary ms-2" id="totalCargadosBadge">
@@ -515,14 +515,6 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <form id="activarSuperadminForm" class="border border-warning rounded p-3 mb-4 d-none">
-                        <div class="fw-semibold mb-2">Activar administrador principal</div>
-                        <div class="form-text mb-2">Esta activación única entrega todos los permisos a la cuenta Gerente1.</div>
-                        <label class="form-label" for="superadminActivationToken">Código de activación</label>
-                        <input class="form-control mb-2" id="superadminActivationToken" type="password" required autocomplete="one-time-code">
-                        <div class="alert alert-danger d-none" id="superadminActivationError" role="alert"></div>
-                        <button class="btn btn-warning w-100" type="submit">Activar cuenta principal</button>
-                    </form>
                     <form id="createUserForm" class="border rounded p-3 mb-4">
                         <div class="fw-semibold mb-3">Crear cuenta de ingreso</div>
                         <label class="form-label" for="newUsername">Usuario</label>
@@ -533,9 +525,9 @@
                         <select class="form-select mb-2" id="newRole">
                             <option value="operador">Operador: registra movimientos y traslados</option>
                             <option value="consulta">Consulta: solo puede ver</option>
-                            <option value="admin">Administrador: gestiona usuarios, catálogos e importaciones</option>
+                            <option value="admin">Administrador: todo, incluidos usuarios y catálogos</option>
                         </select>
-                        <div class="form-text mb-3">Mínimo 8 caracteres. El rol de superadministrador no se puede asignar desde este formulario.</div>
+                        <div class="form-text mb-3">Mínimo 8 caracteres. El usuario podrá iniciar sesión con estos datos.</div>
                         <div class="alert alert-danger d-none" id="userError" role="alert"></div>
                         <button class="btn btn-primary w-100" type="submit">Crear usuario</button>
                     </form>

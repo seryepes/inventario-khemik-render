@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import hmac
 from typing import Any
 
 from flask import Blueprint, current_app, g, jsonify, request, session
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
 
-from .seguridad import ADMINISTRACION, ESCRITURA, error, requiere_rol, solicitud_sin_csrf
+from .seguridad import ESCRITURA, error, requiere_rol, solicitud_sin_csrf
 from .service import ConflictoError, InventarioService
 from .usuarios import CredencialesInvalidas, UsuarioService
 
@@ -73,11 +72,6 @@ def dato_invalido(exc: ValueError):
     return error(str(exc), 400)
 
 
-@bp.errorhandler(PermissionError)
-def permiso_denegado(exc: PermissionError):
-    return error(str(exc), 403)
-
-
 @bp.errorhandler(LookupError)
 def no_encontrado(exc: LookupError):
     return error(str(exc), 404)
@@ -115,18 +109,7 @@ def health():
 @bp.get("/auth/status")
 def auth_status():
     usuario = UsuarioService.publico(g.usuario) if g.usuario else None
-    puede_activar_superadmin = bool(
-        g.usuario
-        and g.usuario["role"] == "admin"
-        and g.usuario["username"] == current_app.config["SUPERADMIN_SETUP_USERNAME"]
-        and current_app.config["SUPERADMIN_SETUP_TOKEN"]
-        and usuarios().superadmin_bootstrap_disponible()
-    )
-    return jsonify({
-        "setupRequired": not usuarios().hay_usuarios(),
-        "user": usuario,
-        "superadminActivationAvailable": puede_activar_superadmin,
-    })
+    return jsonify({"setupRequired": not usuarios().hay_usuarios(), "user": usuario})
 
 
 @bp.post("/auth/setup")
@@ -153,29 +136,14 @@ def auth_logout():
     return jsonify({"ok": True})
 
 
-@bp.post("/auth/superadmin/activate")
-@requiere_rol("admin")
-def auth_activar_superadmin():
-    token_configurado = current_app.config["SUPERADMIN_SETUP_TOKEN"]
-    if not token_configurado:
-        return error("La activación segura no está configurada.", 503)
-    token_recibido = str(cuerpo_json().get("token") or "")
-    if not hmac.compare_digest(token_recibido, token_configurado):
-        return error("El código de activación no es válido.", 403)
-    usuario = usuarios().activar_superadministrador_inicial(
-        usuario_id(), current_app.config["SUPERADMIN_SETUP_USERNAME"],
-    )
-    return jsonify({"user": usuario})
-
-
 @bp.get("/auth/users")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def auth_users():
     return jsonify(usuarios().listar())
 
 
 @bp.post("/auth/users")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def auth_create_user():
     data = cuerpo_json()
     usuario = usuarios().crear(data.get("username"), data.get("password"), data.get("role"), usuario_id())
@@ -183,11 +151,9 @@ def auth_create_user():
 
 
 @bp.patch("/auth/users/<username>")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def auth_update_user(username: str):
-    return jsonify(usuarios().actualizar(
-        username, cuerpo_json(), usuario_id(), g.usuario["role"],
-    ))
+    return jsonify(usuarios().actualizar(username, cuerpo_json(), usuario_id()))
 
 
 # --- Catálogos y auditoría -------------------------------------------------
@@ -198,33 +164,33 @@ def catalogos():
 
 
 @bp.post("/catalogos/productos")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def crear_producto():
     data = cuerpo_json()
     return jsonify(inventario().crear_producto(data.get("nombre"), data.get("categoria"), usuario_id())), 201
 
 
 @bp.patch("/catalogos/productos/<int:producto_id>")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def actualizar_producto(producto_id: int):
     return jsonify(inventario().actualizar_producto(producto_id, cuerpo_json(), usuario_id()))
 
 
 @bp.delete("/catalogos/productos/<int:producto_id>")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def eliminar_producto(producto_id: int):
     return jsonify(inventario().eliminar_producto(producto_id, usuario_id()))
 
 
 @bp.post("/catalogos/presentaciones")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def crear_presentacion():
     data = cuerpo_json()
     return jsonify(inventario().crear_presentacion(data.get("nombre"), data.get("capacidad"), usuario_id())), 201
 
 
 @bp.get("/auditoria")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def auditoria():
     return jsonify(inventario().auditoria(request.args.get("limite", 100, type=int)))
 
@@ -266,7 +232,7 @@ def eliminar_movimiento(id_: int):
 
 
 @bp.delete("/movimientos")
-@requiere_rol("superadmin")
+@requiere_rol("admin")
 def borrar_movimientos():
     return jsonify({"ok": True, "eliminados": inventario().borrar_todo(usuario_id())})
 
@@ -310,7 +276,7 @@ def actualizar_estado_lote():
 
 
 @bp.post("/importar")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def importar():
     data = cuerpo_json(permitir_lista=True)
     registros = data.get("registros") if isinstance(data, dict) else data
@@ -318,7 +284,7 @@ def importar():
 
 
 @bp.post("/restaurar")
-@requiere_rol(*ADMINISTRACION)
+@requiere_rol("admin")
 def restaurar():
     data = cuerpo_json(permitir_lista=True)
     registros = data.get("registros") if isinstance(data, dict) else data

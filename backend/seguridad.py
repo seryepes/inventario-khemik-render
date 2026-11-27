@@ -7,8 +7,7 @@ from flask import Flask, g, jsonify, request
 
 CSRF_HEADER = "X-Khemik-Request"
 METODOS_SEGUROS = {"GET", "HEAD", "OPTIONS"}
-ADMINISTRACION = ("superadmin", "admin")
-ESCRITURA = ("superadmin", "admin", "operador")
+ESCRITURA = ("admin", "operador")
 
 CSP = "; ".join([
     "default-src 'self'",
