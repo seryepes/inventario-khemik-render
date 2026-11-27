@@ -100,6 +100,64 @@ def _migrar_roles_personalizados(engine: Engine) -> None:
         raise RuntimeError(f"No se puede actualizar los roles en {engine.dialect.name}.")
 
 
+def _migrar_categorias_producto(engine: Engine) -> None:
+    from .models import CATEGORIAS_PRODUCTO
+
+    restricciones = inspect(engine).get_check_constraints("productos")
+    categoria_check = next(
+        (item for item in restricciones if item["name"] == "ck_producto_categoria"),
+        None,
+    )
+    if categoria_check is None:
+        return
+
+    sql_categorias = ", ".join(f"'{categoria}'" for categoria in CATEGORIAS_PRODUCTO)
+    if all(categoria in categoria_check["sqltext"] for categoria in CATEGORIAS_PRODUCTO):
+        return
+
+    if engine.dialect.name == "sqlite":
+        conexion = engine.raw_connection()
+        try:
+            cursor = conexion.cursor()
+            try:
+                cursor.execute("PRAGMA foreign_keys=OFF")
+                cursor.execute("BEGIN")
+                cursor.execute(f"""
+                    CREATE TABLE productos_nueva (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        nombre VARCHAR(60) NOT NULL UNIQUE,
+                        categoria VARCHAR(30) NOT NULL,
+                        activo BOOLEAN NOT NULL,
+                        creado_en DATETIME NOT NULL,
+                        CONSTRAINT ck_producto_categoria CHECK (categoria IN ({sql_categorias}))
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO productos_nueva (id, nombre, categoria, activo, creado_en)
+                    SELECT id, nombre, categoria, activo, creado_en FROM productos
+                """)
+                cursor.execute("DROP TABLE productos")
+                cursor.execute("ALTER TABLE productos_nueva RENAME TO productos")
+                conexion.commit()
+            except Exception:
+                conexion.rollback()
+                raise
+            finally:
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+        finally:
+            conexion.close()
+    elif engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE productos DROP CONSTRAINT ck_producto_categoria"))
+            connection.execute(text(
+                f"ALTER TABLE productos ADD CONSTRAINT ck_producto_categoria "
+                f"CHECK (categoria IN ({sql_categorias}))"
+            ))
+    else:
+        raise RuntimeError(f"No se pueden actualizar las categorías en {engine.dialect.name}.")
+
+
 def inicializar_base(url: str) -> sessionmaker:
     """Crea las tablas que falten, carga los catálogos iniciales y devuelve la fábrica de sesiones."""
     from . import models  # noqa: F401  registra las tablas en Base.metadata
@@ -117,6 +175,7 @@ def inicializar_base(url: str) -> sessionmaker:
                 "UPDATE productos SET categoria = 'producto_terminado' "
                 "WHERE nombre IN ('Aluminio', 'Magnesio')"
             ))
+    _migrar_categorias_producto(engine)
     columnas_ubicacion = {column["name"] for column in inspect(engine).get_columns("ubicaciones")}
     if "peligrosa" not in columnas_ubicacion:
         with engine.begin() as connection:

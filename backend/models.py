@@ -12,7 +12,7 @@ from .database import Base
 
 ROLES = ("admin", "coordinador", "operador", "consulta")
 TIPOS_MOVIMIENTO = ("Ingreso", "Salida", "Sin ubicar")
-CATEGORIAS_PRODUCTO = ("producto_terminado", "materia_prima")
+CATEGORIAS_PRODUCTO = ("producto_terminado", "materia_prima", "producto_rechazado", "otros")
 
 
 def ahora() -> datetime:

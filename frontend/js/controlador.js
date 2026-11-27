@@ -9,6 +9,12 @@ const ROLES = {
     operador: 'Operador',
     consulta: 'Consulta'
 };
+const CATEGORIAS_PRODUCTO = {
+    producto_terminado: 'Producto terminado',
+    materia_prima: 'Materia prima',
+    producto_rechazado: 'Producto rechazado',
+    otros: 'Otros'
+};
 
 let usuarioActual = null;
 let rolesDisponibles = [];
@@ -52,7 +58,7 @@ function listeners() {
     document.getElementById('modalUsuarios').addEventListener('show.bs.modal', cargarPanelAdministracion);
     document.getElementById('refreshAuditButton').addEventListener('click', cargarAuditoria);
 
-    ['searchInput', 'filterProduct', 'filterPres', 'filterMvto'].forEach(id => {
+    ['searchInput', 'filterProduct', 'filterCategoria', 'filterPres', 'filterMvto'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => { currentPage = 1; renderTabla(); });
         document.getElementById(id).addEventListener('input', () => { currentPage = 1; renderTabla(); });
     });
@@ -69,13 +75,17 @@ function listeners() {
     document.getElementById('btnBackupJson').addEventListener('click', exportarBackupJSON);
     document.getElementById('btnBorrarTodo').addEventListener('click', borrarTodo);
     document.getElementById('btnNuevoRegistro').addEventListener('click', prepararNuevoRegistro);
-    document.getElementById('stockSearchProductoTerminado').addEventListener('input', renderStockConsolidado);
-    document.getElementById('stockSearchMateriaPrima').addEventListener('input', renderStockConsolidado);
+    ['ProductoTerminado', 'MateriaPrima', 'ProductoRechazado', 'Otros'].forEach(sufijo => {
+        document.getElementById(`stockSearch${sufijo}`).addEventListener('input', renderStockConsolidado);
+        document.getElementById(`stockTable${sufijo}`).addEventListener('click', guardarEstadoLote);
+    });
     document.getElementById('stockTableProductoTerminado').addEventListener('click', guardarEstadoLote);
     document.getElementById('stockTableMateriaPrima').addEventListener('click', guardarEstadoLote);
 
     document.getElementById('tab-stock-terminado-tab').addEventListener('click', () => renderStockConsolidado());
     document.getElementById('tab-stock-materias-primas-tab').addEventListener('click', () => renderStockConsolidado());
+    document.getElementById('tab-stock-rechazados-tab').addEventListener('click', () => renderStockConsolidado());
+    document.getElementById('tab-stock-otros-tab').addEventListener('click', () => renderStockConsolidado());
     document.getElementById('tab-posiciones-tab').addEventListener('click', () => renderMapaPosiciones());
     document.getElementById('contenidoProductosPosicion').addEventListener('submit', guardarAlertaPeligroPosicion);
     document.getElementById('contenidoProductosPosicion').addEventListener('change', event => {
@@ -447,7 +457,7 @@ function renderProductosCatalogo() {
     service.catalogos.productos.forEach(producto => {
         const item = document.createElement('li');
         item.className = 'list-group-item d-flex justify-content-between align-items-center gap-2 px-0';
-        const categoria = producto.categoria === 'materia_prima' ? 'Materia prima' : 'Producto terminado';
+        const categoria = CATEGORIAS_PRODUCTO[producto.categoria] || 'Sin categoría';
         item.innerHTML = `
             <span class="${producto.activo ? '' : 'text-muted text-decoration-line-through'}">
                 <strong>${esc(producto.nombre)}</strong>
@@ -565,6 +575,7 @@ function renderTabla() {
     const filtros = {
         busqueda: document.getElementById('searchInput').value,
         producto: document.getElementById('filterProduct').value,
+        categoria: document.getElementById('filterCategoria').value,
         presentacion: document.getElementById('filterPres').value,
         mvto: document.getElementById('filterMvto').value
     };
@@ -623,6 +634,7 @@ function renderTabla() {
 function obtenerStockFiltrado() {
     const search = document.getElementById('searchInput').value.toLowerCase().trim();
     const producto = document.getElementById('filterProduct').value;
+    const categoria = document.getElementById('filterCategoria').value;
     const presentacion = document.getElementById('filterPres').value;
 
     return service.obtenerStockConsolidado().filter(item => {
@@ -630,8 +642,9 @@ function obtenerStockFiltrado() {
             item.posicion.toLowerCase().includes(search) ||
             item.producto.toLowerCase().includes(search);
         const matchProducto = !producto || item.producto === producto;
+        const matchCategoria = !categoria || item.categoria === categoria;
         const matchPresentacion = !presentacion || item.presentacion === presentacion;
-        return matchSearch && matchProducto && matchPresentacion;
+        return matchSearch && matchProducto && matchCategoria && matchPresentacion;
     });
 }
 
@@ -678,6 +691,8 @@ function renderEstadisticas() {
 function renderStockConsolidado() {
     renderStockCategoria('producto_terminado', 'ProductoTerminado');
     renderStockCategoria('materia_prima', 'MateriaPrima');
+    renderStockCategoria('producto_rechazado', 'ProductoRechazado');
+    renderStockCategoria('otros', 'Otros');
 }
 
 function renderStockCategoria(categoria, sufijo) {

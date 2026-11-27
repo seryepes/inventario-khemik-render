@@ -164,6 +164,16 @@
                 </button>
             </li>
             <li class="nav-item">
+                <button class="nav-link fs-6" id="tab-stock-rechazados-tab" data-bs-toggle="tab" data-bs-target="#tab-stock-rechazados" type="button">
+                    <i class="fa-solid fa-box-open me-2"></i>Productos Rechazados
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link fs-6" id="tab-stock-otros-tab" data-bs-toggle="tab" data-bs-target="#tab-stock-otros" type="button">
+                    <i class="fa-solid fa-boxes-stacked me-2"></i>Otros Productos
+                </button>
+            </li>
+            <li class="nav-item">
                 <button class="nav-link fs-6" id="tab-posiciones-tab" data-bs-toggle="tab" data-bs-target="#tab-posiciones" type="button">
                     <i class="fa-solid fa-warehouse me-2"></i>Consultar Posiciones Disponibles
                 </button>
@@ -175,7 +185,7 @@
             <div class="tab-pane fade show active" id="tab-movimientos" role="tabpanel">
                 <div class="card border-0 shadow-sm p-3 mb-4">
                     <div class="row g-3 align-items-center">
-                        <div class="col-lg-4 col-md-6">
+                        <div class="col-lg-2 col-md-6">
                             <div class="input-group">
                                 <span class="input-group-text bg-white"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
                                 <input type="text" id="searchInput" class="form-control" placeholder="Buscar por Lote, Posición, ID...">
@@ -187,6 +197,15 @@
                                 <option value="Aluminio">Aluminio</option>
                                 <option value="Magnesio">Magnesio</option>
                                 <option value="Otro">Otro</option>
+                            </select>
+                        </div>
+                        <div class="col-lg-2 col-md-3">
+                            <select id="filterCategoria" class="form-select">
+                                <option value="">Todos los tipos</option>
+                                <option value="producto_terminado">Producto terminado</option>
+                                <option value="materia_prima">Materia prima</option>
+                                <option value="producto_rechazado">Producto rechazado</option>
+                                <option value="otros">Otros</option>
                             </select>
                         </div>
                         <div class="col-lg-2 col-md-3">
@@ -337,6 +356,74 @@
                 </div>
             </div>
 
+            <div class="tab-pane fade" id="tab-stock-rechazados" role="tabpanel">
+                <div class="card border-0 shadow-sm p-3 mb-4">
+                    <div class="row g-3 align-items-center">
+                        <div class="col-md-4">
+                            <input type="text" id="stockSearchProductoRechazado" class="form-control" placeholder="Buscar posición, producto o lote...">
+                        </div>
+                        <div class="col-md-8 text-end">
+                            <span class="badge bg-warning text-dark fs-6" id="stockTotalProductoRechazado">0 un.</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-card mb-4">
+                    <h5 class="fw-bold mb-3 text-secondary"><i class="fa-solid fa-box-open me-2"></i>Productos Rechazados Disponibles</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Posición</th><th>Producto</th><th>Presentación</th><th>Lote</th>
+                                    <th class="text-end">Stock Actual</th><th class="text-end">Peso total (kg)</th><th>Estado del lote</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stockTableProductoRechazado"></tbody>
+                            <tfoot>
+                                <tr class="table-light">
+                                    <th colspan="4" class="text-end">Total:</th>
+                                    <th class="text-end text-success" id="stockFooterProductoRechazado">0</th>
+                                    <th class="text-end text-success" id="stockKgFooterProductoRechazado">0 kg</th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="tab-stock-otros" role="tabpanel">
+                <div class="card border-0 shadow-sm p-3 mb-4">
+                    <div class="row g-3 align-items-center">
+                        <div class="col-md-4">
+                            <input type="text" id="stockSearchOtros" class="form-control" placeholder="Buscar posición, producto o lote...">
+                        </div>
+                        <div class="col-md-8 text-end">
+                            <span class="badge bg-secondary fs-6" id="stockTotalOtros">0 un.</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-card mb-4">
+                    <h5 class="fw-bold mb-3 text-secondary"><i class="fa-solid fa-boxes-stacked me-2"></i>Otros Productos Disponibles</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Posición</th><th>Producto</th><th>Presentación</th><th>Lote</th>
+                                    <th class="text-end">Stock Actual</th><th class="text-end">Peso total (kg)</th><th>Estado del lote</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stockTableOtros"></tbody>
+                            <tfoot>
+                                <tr class="table-light">
+                                    <th colspan="4" class="text-end">Total:</th>
+                                    <th class="text-end text-success" id="stockFooterOtros">0</th>
+                                    <th class="text-end text-success" id="stockKgFooterOtros">0 kg</th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <div class="tab-pane fade" id="tab-posiciones" role="tabpanel">
                 <div class="card border-0 shadow-sm p-3 mb-4">
                     <div class="row g-3 align-items-center">
@@ -391,6 +478,8 @@
                                     <option value="">Selecciona el tipo</option>
                                     <option value="producto_terminado">Producto terminado</option>
                                     <option value="materia_prima">Materia prima</option>
+                                    <option value="producto_rechazado">Producto rechazado</option>
+                                    <option value="otros">Otros</option>
                                 </select>
                             </div>
                             <div class="col-md-6">
@@ -568,6 +657,8 @@
                                 <option value="">Selecciona categoría</option>
                                 <option value="producto_terminado">Producto terminado</option>
                                 <option value="materia_prima">Materia prima</option>
+                                <option value="producto_rechazado">Producto rechazado</option>
+                                <option value="otros">Otros</option>
                             </select>
                         </div>
                         <div class="col-md-2">

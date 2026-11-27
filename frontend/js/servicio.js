@@ -196,8 +196,9 @@ export class InventarioService {
         return resultado;
     }
 
-    filtrarMovimientos({ busqueda = '', producto = '', presentacion = '', mvto = '' }) {
+    filtrarMovimientos({ busqueda = '', producto = '', categoria = '', presentacion = '', mvto = '' }) {
         const search = busqueda.toLowerCase().trim();
+        const categorias = new Map(this.catalogos.productos.map(item => [item.nombre, item.categoria]));
         return this.movimientos.filter(item => {
             const matchSearch = item.lote.toLowerCase().includes(search) ||
                 item.posicion.toLowerCase().includes(search) ||
@@ -205,6 +206,7 @@ export class InventarioService {
                 (item.id && item.id.toString().includes(search)) ||
                 item.observaciones.toLowerCase().includes(search);
             return matchSearch && (!producto || item.producto === producto) &&
+                (!categoria || categorias.get(item.producto) === categoria) &&
                 (!presentacion || item.presentacion === presentacion) &&
                 (!mvto || item.mvto === mvto);
         });
