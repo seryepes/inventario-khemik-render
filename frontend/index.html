@@ -11,7 +11,7 @@
     <meta name="theme-color" content="#263e5b">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css?v=4">
+    <link rel="stylesheet" href="css/style.css?v=6">
     <!-- SheetJS con versión fija desde su CDN oficial (la de npm está desactualizada). -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
@@ -54,16 +54,16 @@
                 <button class="btn btn-outline-light btn-sm" id="btnLogout">
                     <i class="fa-solid fa-right-from-bracket me-1"></i>Salir
                 </button>
-                <button class="btn btn-success btn-sm fw-semibold" id="btnExportarExcel">
+                <button class="btn btn-success btn-sm fw-semibold permiso-inventario" id="btnExportarExcel">
                     <i class="fa-solid fa-file-excel me-1"></i>Guardar Excel (.xlsx)
                 </button>
-                <button class="btn btn-outline-light btn-sm" id="btnExportarCSV">
+                <button class="btn btn-outline-light btn-sm permiso-inventario" id="btnExportarCSV">
                     <i class="fa-solid fa-file-csv me-1"></i>Exportar CSV
                 </button>
-                <button class="btn btn-warning btn-sm fw-semibold" id="btnBackupJson">
+                <button class="btn btn-warning btn-sm fw-semibold permiso-inventario" id="btnBackupJson">
                     <i class="fa-solid fa-download me-1"></i>Backup JSON
                 </button>
-                <label class="btn btn-outline-warning btn-sm mb-0 solo-admin" for="backupFileInput">
+                <label class="btn btn-outline-warning btn-sm mb-0 requiere-restaurar" for="backupFileInput">
                     <i class="fa-solid fa-upload me-1"></i>Restaurar JSON
                 </label>
                 <input type="file" id="backupFileInput" accept=".json,application/json" class="d-none">
@@ -77,9 +77,12 @@
         </div>
     </nav>
 
-    <div class="container-fluid px-4">
+    <div class="alert alert-info mx-4 mt-4 d-none" id="noInventoryNotice">
+        Tu cuenta no tiene acceso de consulta al inventario. Usa las funciones administrativas disponibles.
+    </div>
+    <div class="container-fluid px-4" id="inventoryView">
 
-        <div class="card border-0 shadow-sm p-3 mb-4 bg-white solo-admin">
+        <div class="card border-0 shadow-sm p-3 mb-4 bg-white requiere-importar">
             <div class="row align-items-center g-3">
                 <div class="col-md-6 col-lg-5">
                     <label for="excelFileInput" class="form-label fw-bold text-secondary mb-1">
@@ -203,7 +206,7 @@
                                 <option value="Sin ubicar">Sin ubicar</option>
                             </select>
                         </div>
-                        <div class="col-lg-2 col-md-6 text-end requiere-escritura">
+                        <div class="col-lg-2 col-md-6 text-end requiere-movimientos">
                             <button class="btn btn-success w-100 fw-bold shadow-sm" id="btnNuevoRegistro">
                                 <i class="fa-solid fa-plus me-1"></i>Nuevo Registro
                             </button>
@@ -230,7 +233,7 @@
                                     <th>Lote</th>
                                     <th>Cantidad</th>
                                     <th>Observaciones</th>
-                                    <th class="text-center requiere-escritura">Acciones</th>
+                                    <th class="text-center requiere-movimientos">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody id="tableBody"></tbody>
@@ -515,6 +518,7 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+                    <section class="requiere-usuarios">
                     <form id="createUserForm" class="border rounded p-3 mb-4">
                         <div class="fw-semibold mb-3">Crear cuenta de ingreso</div>
                         <label class="form-label" for="newUsername">Usuario</label>
@@ -525,15 +529,36 @@
                         <select class="form-select mb-2" id="newRole">
                             <option value="operador">Operador: registra movimientos y traslados</option>
                             <option value="consulta">Consulta: solo puede ver</option>
-                            <option value="admin">Administrador: todo, incluidos usuarios y catálogos</option>
+                            <option value="coordinador">Coordinador logístico</option>
+                            <option value="admin">Administrador</option>
                         </select>
-                        <div class="form-text mb-3">Mínimo 8 caracteres. El usuario podrá iniciar sesión con estos datos.</div>
+                        <div class="form-text mb-3">Mínimo 8 caracteres. Solo un administrador puede asignar roles de administrador y coordinador.</div>
                         <div class="alert alert-danger d-none" id="userError" role="alert"></div>
                         <button class="btn btn-primary w-100" type="submit">Crear usuario</button>
                     </form>
                     <h6 class="fw-bold">Cuentas registradas</h6>
                     <ul class="list-group mb-4" id="userList"></ul>
+                    </section>
 
+                    <section class="border rounded p-3 mb-4 solo-admin" id="roleManagementSection">
+                        <h6 class="fw-bold">Roles personalizados</h6>
+                        <p class="form-text">Configura los accesos del rol. El permiso para borrar todos los movimientos sigue reservado al administrador.</p>
+                        <form id="customRoleForm">
+                            <input type="hidden" id="customRoleCode">
+                            <label class="form-label" for="customRoleName">Nombre del rol</label>
+                            <input class="form-control mb-3" id="customRoleName" required minlength="3" maxlength="60">
+                            <div class="fw-semibold mb-2">Permisos</div>
+                            <div class="row g-2 mb-3" id="rolePermissionOptions"></div>
+                            <div class="alert alert-danger d-none" id="roleError" role="alert"></div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-primary flex-grow-1" id="saveRoleButton" type="submit">Crear rol</button>
+                                <button class="btn btn-outline-secondary d-none" id="cancelRoleEdit" type="button">Cancelar</button>
+                            </div>
+                        </form>
+                        <ul class="list-group list-group-flush mt-3" id="customRoleList"></ul>
+                    </section>
+
+                    <section class="requiere-catalogos">
                     <h6 class="fw-bold">Productos</h6>
                     <form id="createProductForm" class="row g-2 mb-2">
                         <div class="col-md-5">
@@ -563,12 +588,19 @@
                         <button class="btn btn-outline-primary" type="submit">Agregar</button>
                     </form>
                     <div class="form-text">Deja la capacidad vacía si no hay límite por posición.</div>
+                    </section>
+
+                    <section class="requiere-auditoria mt-4">
+                        <h6 class="fw-bold">Auditoría</h6>
+                        <button class="btn btn-sm btn-outline-secondary mb-2" id="refreshAuditButton" type="button">Actualizar registro</button>
+                        <ul class="list-group" id="auditList"></ul>
+                    </section>
                 </div>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script type="module" src="js/controlador.js?v=8"></script>
+    <script type="module" src="js/controlador.js?v=10"></script>
 </body>
 </html>

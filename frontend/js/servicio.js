@@ -80,11 +80,37 @@ export class InventarioService {
         return request('/auth/users');
     }
 
+    async listarRoles() {
+        return request('/auth/roles');
+    }
+
     async crearUsuario(username, password, role) {
         return request('/auth/users', {
             method: 'POST',
             body: JSON.stringify({ username, password, role })
         });
+    }
+
+    async crearRol(nombre, permisos) {
+        return request('/auth/roles', {
+            method: 'POST',
+            body: JSON.stringify({ nombre, permisos })
+        });
+    }
+
+    async actualizarRol(codigo, nombre, permisos) {
+        return request(`/auth/roles/${encodeURIComponent(codigo)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ nombre, permisos })
+        });
+    }
+
+    async eliminarRol(codigo) {
+        return request(`/auth/roles/${encodeURIComponent(codigo)}`, { method: 'DELETE' });
+    }
+
+    async listarAuditoria() {
+        return request('/auditoria');
     }
 
     async cargarDatos() {

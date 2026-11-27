@@ -67,9 +67,17 @@ body {
     font-weight: bold;
     border-bottom: 3px solid #0d6efd;
 }
-/* Controles según el rol (el backend también valida cada permiso). */
+/* La API aplica los mismos permisos; estos selectores solo ajustan la interfaz. */
 body:not([data-rol="admin"]) .solo-admin,
-body[data-rol="consulta"] .requiere-escritura {
+body:not([data-permisos~="ver_inventario"]) #inventoryView,
+body:not([data-permisos~="ver_inventario"]) .permiso-inventario,
+body:not([data-permisos~="gestionar_movimientos"]) .requiere-movimientos,
+body:not([data-permisos~="gestionar_lotes"]) .requiere-lotes,
+body:not([data-permisos~="gestionar_catalogos"]) .requiere-catalogos,
+body:not([data-permisos~="gestionar_usuarios"]) .requiere-usuarios,
+body:not([data-permisos~="importar_excel"]) .requiere-importar,
+body:not([data-permisos~="restaurar_backup"]) .requiere-restaurar,
+body:not([data-permisos~="ver_auditoria"]) .requiere-auditoria {
     display: none !important;
 }
 

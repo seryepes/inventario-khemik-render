@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
 
-ROLES = ("admin", "operador", "consulta")
+ROLES = ("admin", "coordinador", "operador", "consulta")
 TIPOS_MOVIMIENTO = ("Ingreso", "Salida", "Sin ubicar")
 CATEGORIAS_PRODUCTO = ("producto_terminado", "materia_prima")
 
@@ -78,7 +78,6 @@ class EstadoLote(Base):
 
 class Usuario(Base):
     __tablename__ = "usuarios"
-    __table_args__ = (CheckConstraint(f"rol IN {ROLES}", name="ck_usuario_rol"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(40), unique=True)  # siempre en minúsculas
@@ -88,6 +87,16 @@ class Usuario(Base):
     intentos_fallidos: Mapped[int] = mapped_column(Integer, default=0)
     bloqueado_hasta: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     ultimo_acceso: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
+
+
+class RolPersonalizado(Base):
+    __tablename__ = "roles_personalizados"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    codigo: Mapped[str] = mapped_column(String(20), unique=True)
+    nombre: Mapped[str] = mapped_column(String(60), unique=True)
+    permisos: Mapped[str] = mapped_column(Text)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
 
 

@@ -6,9 +6,9 @@ from flask import Blueprint, current_app, g, jsonify, request, session
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
 
-from .seguridad import ESCRITURA, error, requiere_rol, solicitud_sin_csrf
+from .seguridad import error, requiere_permiso, requiere_rol, solicitud_sin_csrf
 from .service import ConflictoError, InventarioService
-from .usuarios import CredencialesInvalidas, UsuarioService
+from .usuarios import CredencialesInvalidas, PermisoUsuarioError, UsuarioService
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -34,6 +34,10 @@ def usuario_id() -> int:
     return g.usuario["id"]
 
 
+def usuario_publico(usuario: dict[str, Any]) -> dict[str, Any]:
+    return {**UsuarioService.publico(usuario), **usuarios().informacion_rol(usuario["role"])}
+
+
 def iniciar_sesion(usuario: dict[str, Any]) -> None:
     session.clear()
     session.permanent = True
@@ -50,6 +54,7 @@ def proteger():
         usuario = usuarios().obtener_activo(session.get("uid"))
         # Si la cuenta se desactivó o cambió la contraseña, la sesión deja de valer.
         if usuario and usuario["huella"] == session.get("huella"):
+            usuario.update(usuarios().informacion_rol(usuario["role"]))
             g.usuario = usuario
         else:
             session.clear()
@@ -82,6 +87,11 @@ def credenciales(exc: CredencialesInvalidas):
     return error(str(exc), exc.status)
 
 
+@bp.errorhandler(PermisoUsuarioError)
+def permiso_usuario(exc: PermisoUsuarioError):
+    return error(str(exc), 403)
+
+
 @bp.errorhandler(IntegrityError)
 def integridad(_exc: IntegrityError):
     return error("La operación entra en conflicto con datos existentes. Recarga e intenta de nuevo.", 409)
@@ -108,7 +118,7 @@ def health():
 
 @bp.get("/auth/status")
 def auth_status():
-    usuario = UsuarioService.publico(g.usuario) if g.usuario else None
+    usuario = usuario_publico(g.usuario) if g.usuario else None
     return jsonify({"setupRequired": not usuarios().hay_usuarios(), "user": usuario})
 
 
@@ -119,7 +129,7 @@ def auth_setup():
     if usuario is None:
         return error("El administrador inicial ya fue creado.", 409)
     iniciar_sesion(usuario)
-    return jsonify({"user": UsuarioService.publico(usuario)}), 201
+    return jsonify({"user": usuario_publico(usuario)}), 201
 
 
 @bp.post("/auth/login")
@@ -127,7 +137,7 @@ def auth_login():
     data = cuerpo_json()
     usuario = usuarios().autenticar(data.get("username"), data.get("password"), request.remote_addr or "")
     iniciar_sesion(usuario)
-    return jsonify({"user": UsuarioService.publico(usuario)})
+    return jsonify({"user": usuario_publico(usuario)})
 
 
 @bp.post("/auth/logout")
@@ -137,60 +147,90 @@ def auth_logout():
 
 
 @bp.get("/auth/users")
-@requiere_rol("admin")
+@requiere_permiso("gestionar_usuarios")
 def auth_users():
     return jsonify(usuarios().listar())
 
 
 @bp.post("/auth/users")
-@requiere_rol("admin")
+@requiere_permiso("gestionar_usuarios")
 def auth_create_user():
     data = cuerpo_json()
-    usuario = usuarios().crear(data.get("username"), data.get("password"), data.get("role"), usuario_id())
+    usuario = usuarios().crear(
+        data.get("username"), data.get("password"), data.get("role"), usuario_id(), g.usuario["role"],
+    )
     return jsonify(usuario), 201
 
 
 @bp.patch("/auth/users/<username>")
-@requiere_rol("admin")
+@requiere_permiso("gestionar_usuarios")
 def auth_update_user(username: str):
-    return jsonify(usuarios().actualizar(username, cuerpo_json(), usuario_id()))
+    return jsonify(usuarios().actualizar(username, cuerpo_json(), usuario_id(), g.usuario["role"]))
+
+
+@bp.get("/auth/roles")
+@requiere_rol("admin")
+def auth_roles():
+    return jsonify(usuarios().listar_roles())
+
+
+@bp.post("/auth/roles")
+@requiere_rol("admin")
+def auth_create_role():
+    data = cuerpo_json()
+    return jsonify(usuarios().crear_rol(data.get("nombre"), data.get("permisos"), usuario_id())), 201
+
+
+@bp.patch("/auth/roles/<codigo>")
+@requiere_rol("admin")
+def auth_update_role(codigo: str):
+    data = cuerpo_json()
+    return jsonify(usuarios().actualizar_rol(codigo, data.get("nombre"), data.get("permisos"), usuario_id()))
+
+
+@bp.delete("/auth/roles/<codigo>")
+@requiere_rol("admin")
+def auth_delete_role(codigo: str):
+    usuarios().eliminar_rol(codigo, usuario_id())
+    return jsonify({"ok": True})
 
 
 # --- Catálogos y auditoría -------------------------------------------------
 
 @bp.get("/catalogos")
+@requiere_permiso("ver_inventario", "gestionar_catalogos")
 def catalogos():
     return jsonify(inventario().catalogos())
 
 
 @bp.post("/catalogos/productos")
-@requiere_rol("admin")
+@requiere_permiso("gestionar_catalogos")
 def crear_producto():
     data = cuerpo_json()
     return jsonify(inventario().crear_producto(data.get("nombre"), data.get("categoria"), usuario_id())), 201
 
 
 @bp.patch("/catalogos/productos/<int:producto_id>")
-@requiere_rol("admin")
+@requiere_permiso("gestionar_catalogos")
 def actualizar_producto(producto_id: int):
     return jsonify(inventario().actualizar_producto(producto_id, cuerpo_json(), usuario_id()))
 
 
 @bp.delete("/catalogos/productos/<int:producto_id>")
-@requiere_rol("admin")
+@requiere_permiso("gestionar_catalogos")
 def eliminar_producto(producto_id: int):
     return jsonify(inventario().eliminar_producto(producto_id, usuario_id()))
 
 
 @bp.post("/catalogos/presentaciones")
-@requiere_rol("admin")
+@requiere_permiso("gestionar_catalogos")
 def crear_presentacion():
     data = cuerpo_json()
     return jsonify(inventario().crear_presentacion(data.get("nombre"), data.get("capacidad"), usuario_id())), 201
 
 
 @bp.get("/auditoria")
-@requiere_rol("admin")
+@requiere_permiso("ver_auditoria")
 def auditoria():
     return jsonify(inventario().auditoria(request.args.get("limite", 100, type=int)))
 
@@ -198,12 +238,13 @@ def auditoria():
 # --- Inventario ------------------------------------------------------------
 
 @bp.get("/movimientos")
+@requiere_permiso("ver_inventario")
 def movimientos():
     return jsonify(inventario().listar())
 
 
 @bp.post("/movimientos")
-@requiere_rol(*ESCRITURA)
+@requiere_permiso("gestionar_movimientos")
 def crear_movimiento():
     data = cuerpo_json()
     data.pop("id", None)
@@ -211,7 +252,7 @@ def crear_movimiento():
 
 
 @bp.put("/movimientos/<int:id_>")
-@requiere_rol(*ESCRITURA)
+@requiere_permiso("gestionar_movimientos")
 def actualizar_movimiento(id_: int):
     data = cuerpo_json()
     data["id"] = id_
@@ -219,13 +260,13 @@ def actualizar_movimiento(id_: int):
 
 
 @bp.post("/traslados")
-@requiere_rol(*ESCRITURA)
+@requiere_permiso("gestionar_movimientos")
 def crear_traslado():
     return jsonify(inventario().guardar_traslado(cuerpo_json(), usuario_id())), 201
 
 
 @bp.delete("/movimientos/<int:id_>")
-@requiere_rol(*ESCRITURA)
+@requiere_permiso("gestionar_movimientos")
 def eliminar_movimiento(id_: int):
     inventario().eliminar(id_, usuario_id())
     return jsonify({"ok": True})
@@ -238,22 +279,25 @@ def borrar_movimientos():
 
 
 @bp.get("/stock")
+@requiere_permiso("ver_inventario")
 def stock():
     return jsonify(inventario().stock())
 
 
 @bp.get("/estadisticas")
+@requiere_permiso("ver_inventario")
 def estadisticas():
     return jsonify(inventario().estadisticas())
 
 
 @bp.get("/posiciones")
+@requiere_permiso("ver_inventario")
 def posiciones():
     return jsonify(inventario().mapa_posiciones())
 
 
 @bp.patch("/posiciones/<path:codigo>/peligro")
-@requiere_rol(*ESCRITURA)
+@requiere_permiso("gestionar_lotes")
 def actualizar_peligro_posicion(codigo: str):
     data = cuerpo_json()
     return jsonify(inventario().actualizar_peligro_posicion(
@@ -262,12 +306,13 @@ def actualizar_peligro_posicion(codigo: str):
 
 
 @bp.get("/lotes/estados")
+@requiere_permiso("ver_inventario")
 def estados_lotes():
     return jsonify(inventario().estados_lotes())
 
 
 @bp.patch("/lotes/estado")
-@requiere_rol(*ESCRITURA)
+@requiere_permiso("gestionar_lotes")
 def actualizar_estado_lote():
     data = cuerpo_json()
     return jsonify(inventario().actualizar_estado_lote(
@@ -276,7 +321,7 @@ def actualizar_estado_lote():
 
 
 @bp.post("/importar")
-@requiere_rol("admin")
+@requiere_permiso("importar_excel")
 def importar():
     data = cuerpo_json(permitir_lista=True)
     registros = data.get("registros") if isinstance(data, dict) else data
@@ -284,7 +329,7 @@ def importar():
 
 
 @bp.post("/restaurar")
-@requiere_rol("admin")
+@requiere_permiso("restaurar_backup")
 def restaurar():
     data = cuerpo_json(permitir_lista=True)
     registros = data.get("registros") if isinstance(data, dict) else data

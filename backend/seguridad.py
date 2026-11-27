@@ -7,8 +7,6 @@ from flask import Flask, g, jsonify, request
 
 CSRF_HEADER = "X-Khemik-Request"
 METODOS_SEGUROS = {"GET", "HEAD", "OPTIONS"}
-ESCRITURA = ("admin", "operador")
-
 CSP = "; ".join([
     "default-src 'self'",
     "script-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com",
@@ -42,6 +40,18 @@ def requiere_rol(*roles: str) -> Callable:
         @wraps(vista)
         def envoltura(*args, **kwargs):
             if g.usuario is None or g.usuario["role"] not in roles:
+                return error("No tienes permisos para realizar esta acción.", 403)
+            return vista(*args, **kwargs)
+        return envoltura
+    return decorador
+
+
+def requiere_permiso(*permisos: str) -> Callable:
+    def decorador(vista: Callable) -> Callable:
+        @wraps(vista)
+        def envoltura(*args, **kwargs):
+            concedidos = set(g.usuario.get("permissions", ())) if g.usuario else set()
+            if not concedidos.intersection(permisos):
                 return error("No tienes permisos para realizar esta acción.", 403)
             return vista(*args, **kwargs)
         return envoltura

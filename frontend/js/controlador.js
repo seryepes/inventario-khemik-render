@@ -1,9 +1,18 @@
-import { InventarioService } from './servicio.js?v=8';
+import { InventarioService } from './servicio.js?v=9';
 
 const service = new InventarioService();
 const TOTAL_POSICIONES = 266;
 
-const ROLES = { admin: 'Administrador', operador: 'Operador', consulta: 'Consulta' };
+const ROLES = {
+    admin: 'Administrador',
+    coordinador: 'Coordinador logístico',
+    operador: 'Operador',
+    consulta: 'Consulta'
+};
+
+let usuarioActual = null;
+let rolesDisponibles = [];
+let permisosDisponibles = [];
 
 // Todo texto que venga de la base se escapa antes de insertarlo como HTML (evita XSS).
 function esc(valor) {
@@ -32,15 +41,16 @@ function listeners() {
     document.getElementById('authForm').addEventListener('submit', autenticar);
     document.getElementById('btnLogout').addEventListener('click', cerrarSesion);
     document.getElementById('createUserForm').addEventListener('submit', crearUsuario);
+    document.getElementById('customRoleForm').addEventListener('submit', guardarRol);
+    document.getElementById('cancelRoleEdit').addEventListener('click', resetFormRol);
     document.getElementById('createProductForm').addEventListener('submit', crearProducto);
     document.getElementById('cancelProductEdit').addEventListener('click', resetProductForm);
     document.getElementById('createPresentationForm').addEventListener('submit', crearPresentacion);
     document.getElementById('userList').addEventListener('click', accionUsuario);
+    document.getElementById('customRoleList').addEventListener('click', accionRol);
     document.getElementById('productCatalogList').addEventListener('click', accionProductoCatalogo);
-    document.getElementById('modalUsuarios').addEventListener('show.bs.modal', () => {
-        cargarUsuarios();
-        cargarCatalogoAdministracion();
-    });
+    document.getElementById('modalUsuarios').addEventListener('show.bs.modal', cargarPanelAdministracion);
+    document.getElementById('refreshAuditButton').addEventListener('click', cargarAuditoria);
 
     ['searchInput', 'filterProduct', 'filterPres', 'filterMvto'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => { currentPage = 1; renderTabla(); });
@@ -109,11 +119,36 @@ function configurarFormularioAcceso(configuracionInicial) {
 }
 
 function mostrarAplicacion(user) {
+    usuarioActual = user;
     document.getElementById('authScreen').classList.add('d-none');
-    document.getElementById('currentUser').textContent = `${user.username} · ${ROLES[user.role] || user.role}`;
-    document.getElementById('btnUsuarios').classList.toggle('d-none', user.role !== 'admin');
-    // style.css oculta los controles que el rol no puede usar; el backend igual valida cada permiso.
+    const permisos = Array.isArray(user.permissions) ? user.permissions : [];
+    document.getElementById('currentUser').textContent =
+        `${user.username} · ${user.roleName || ROLES[user.role] || user.role}`;
+    document.getElementById('btnUsuarios').classList.toggle(
+        'd-none',
+        !['gestionar_usuarios', 'gestionar_catalogos', 'ver_auditoria'].some(permiso => permisos.includes(permiso))
+    );
+    document.getElementById('noInventoryNotice').classList.toggle('d-none', permisos.includes('ver_inventario'));
+    document.body.dataset.permisos = permisos.join(' ');
     document.body.dataset.rol = user.role;
+    actualizarOpcionesRolUsuario();
+}
+
+function actualizarOpcionesRolUsuario() {
+    const select = document.getElementById('newRole');
+    if (!select) return;
+    const esAdmin = usuarioActual?.role === 'admin';
+    const roles = esAdmin && rolesDisponibles.length
+        ? rolesDisponibles
+        : Object.entries(ROLES)
+            .filter(([codigo]) => esAdmin || ['operador', 'consulta'].includes(codigo))
+            .map(([codigo, nombre]) => ({ codigo, nombre }));
+    const prioridad = { operador: 0, consulta: 1, coordinador: 2, admin: 3 };
+    const ordenados = [...roles].sort((a, b) =>
+        (prioridad[a.codigo] ?? 4) - (prioridad[b.codigo] ?? 4) || a.nombre.localeCompare(b.nombre)
+    );
+    select.replaceChildren(...ordenados.map(rol => new Option(rol.nombre, rol.codigo)));
+    if (ordenados.some(rol => rol.codigo === 'operador')) select.value = 'operador';
 }
 
 function mostrarErrorAcceso(message) {
@@ -161,17 +196,29 @@ async function cargarUsuarios() {
         users.forEach(user => {
             const item = document.createElement('li');
             item.className = 'list-group-item d-flex justify-content-between align-items-center gap-2';
+            const esAdmin = usuarioActual?.role === 'admin';
+            const cuentaProtegida = ['admin', 'coordinador'].includes(user.role);
+            const opcionesRol = esAdmin
+                ? `<select class="form-select form-select-sm" data-nuevo-rol="${esc(user.username)}">
+                    ${rolesDisponibles.map(rol => `<option value="${esc(rol.codigo)}" ${rol.codigo === user.role ? 'selected' : ''}>${esc(rol.nombre)}</option>`).join('')}
+                   </select>
+                   <button class="btn btn-sm btn-outline-primary" data-accion="rol" data-username="${esc(user.username)}">Rol</button>`
+                : '';
+            const botonesCuenta = esAdmin || !cuentaProtegida
+                ? `<button class="btn btn-sm btn-outline-${user.activo ? 'danger' : 'success'}" data-accion="activo"
+                       data-username="${esc(user.username)}" data-valor="${user.activo ? '0' : '1'}">
+                       ${user.activo ? 'Desactivar' : 'Activar'}
+                   </button>
+                   <button class="btn btn-sm btn-outline-secondary" data-accion="password" data-username="${esc(user.username)}">
+                       Clave
+                   </button>`
+                : '';
             item.innerHTML = `
                 <span class="${user.activo ? '' : 'text-decoration-line-through text-muted'}">${esc(user.username)}</span>
                 <span class="d-flex gap-1 align-items-center">
-                    <span class="badge bg-secondary">${esc(ROLES[user.role] || user.role)}</span>
-                    <button class="btn btn-sm btn-outline-${user.activo ? 'danger' : 'success'}" data-accion="activo"
-                        data-username="${esc(user.username)}" data-valor="${user.activo ? '0' : '1'}">
-                        ${user.activo ? 'Desactivar' : 'Activar'}
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary" data-accion="password" data-username="${esc(user.username)}">
-                        Clave
-                    </button>
+                    <span class="badge bg-secondary">${esc(user.roleName || ROLES[user.role] || user.role)}</span>
+                    ${opcionesRol}
+                    ${botonesCuenta}
                 </span>`;
             list.appendChild(item);
         });
@@ -179,6 +226,17 @@ async function cargarUsuarios() {
         document.getElementById('userError').textContent = error.message;
         document.getElementById('userError').classList.remove('d-none');
     }
+}
+
+async function cargarPanelAdministracion() {
+    const permisos = new Set(usuarioActual?.permissions || []);
+    const tareas = [];
+    if (permisos.has('gestionar_usuarios')) tareas.push(cargarUsuarios());
+    else document.getElementById('userList').replaceChildren();
+    if (permisos.has('gestionar_catalogos')) tareas.push(cargarCatalogoAdministracion());
+    if (usuarioActual?.role === 'admin') tareas.push(cargarRoles());
+    if (permisos.has('ver_auditoria')) tareas.push(cargarAuditoria());
+    await Promise.all(tareas);
 }
 
 async function crearUsuario(event) {
@@ -206,6 +264,9 @@ async function accionUsuario(event) {
     try {
         if (accion === 'activo') {
             await service.actualizarUsuario(username, { activo: valor === '1' });
+        } else if (accion === 'rol') {
+            const role = document.querySelector(`[data-nuevo-rol="${CSS.escape(username)}"]`).value;
+            await service.actualizarUsuario(username, { role });
         } else {
             const password = prompt(`Nueva contraseña para ${username} (mínimo 8 caracteres):`);
             if (!password) return;
@@ -215,6 +276,130 @@ async function accionUsuario(event) {
         await cargarUsuarios();
     } catch (err) {
         alert(err.message);
+    }
+}
+
+async function cargarRoles() {
+    const error = document.getElementById('roleError');
+    error.classList.add('d-none');
+    try {
+        const resultado = await service.listarRoles();
+        rolesDisponibles = resultado.roles;
+        permisosDisponibles = resultado.permisos;
+        actualizarOpcionesRolUsuario();
+        renderOpcionesPermisosRol();
+        renderRolesPersonalizados();
+        if (document.getElementById('userList').children.length) await cargarUsuarios();
+    } catch (err) {
+        error.textContent = err.message;
+        error.classList.remove('d-none');
+    }
+}
+
+function renderOpcionesPermisosRol(seleccionados = []) {
+    const contenedor = document.getElementById('rolePermissionOptions');
+    contenedor.replaceChildren(...permisosDisponibles.map(permiso => {
+        const columna = document.createElement('div');
+        columna.className = 'col-12';
+        const etiqueta = document.createElement('label');
+        etiqueta.className = 'form-check border rounded p-2 ps-5';
+        const input = document.createElement('input');
+        input.className = 'form-check-input';
+        input.type = 'checkbox';
+        input.name = 'rolePermission';
+        input.value = permiso.codigo;
+        input.checked = seleccionados.includes(permiso.codigo);
+        const texto = document.createElement('span');
+        texto.className = 'form-check-label';
+        texto.textContent = permiso.nombre;
+        etiqueta.append(input, texto);
+        columna.append(etiqueta);
+        return columna;
+    }));
+}
+
+function renderRolesPersonalizados() {
+    const lista = document.getElementById('customRoleList');
+    lista.replaceChildren(...rolesDisponibles.filter(rol => !rol.sistema).map(rol => {
+        const item = document.createElement('li');
+        item.className = 'list-group-item d-flex justify-content-between align-items-start gap-2 px-0';
+        const permisos = rol.permisos
+            .map(codigo => permisosDisponibles.find(permiso => permiso.codigo === codigo)?.nombre || codigo)
+            .join(', ');
+        item.innerHTML = `
+            <span><strong>${esc(rol.nombre)}</strong><small class="d-block text-muted">${esc(permisos)}</small></span>
+            <span class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-primary" data-role-action="edit" data-role-code="${esc(rol.codigo)}">Editar</button>
+                <button class="btn btn-sm btn-outline-danger" data-role-action="delete" data-role-code="${esc(rol.codigo)}">Eliminar</button>
+            </span>`;
+        return item;
+    }));
+}
+
+async function guardarRol(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const error = document.getElementById('roleError');
+    const code = document.getElementById('customRoleCode').value;
+    const nombre = document.getElementById('customRoleName').value;
+    const permisos = [...form.querySelectorAll('input[name="rolePermission"]:checked')].map(input => input.value);
+    error.classList.add('d-none');
+    try {
+        if (code) await service.actualizarRol(code, nombre, permisos);
+        else await service.crearRol(nombre, permisos);
+        resetFormRol();
+        await cargarRoles();
+    } catch (err) {
+        error.textContent = err.message;
+        error.classList.remove('d-none');
+    }
+}
+
+function resetFormRol() {
+    document.getElementById('customRoleForm').reset();
+    document.getElementById('customRoleCode').value = '';
+    document.getElementById('saveRoleButton').textContent = 'Crear rol';
+    document.getElementById('cancelRoleEdit').classList.add('d-none');
+    renderOpcionesPermisosRol();
+}
+
+async function accionRol(event) {
+    const boton = event.target.closest('button[data-role-action]');
+    if (!boton) return;
+    const rol = rolesDisponibles.find(item => item.codigo === boton.dataset.roleCode);
+    if (!rol) return;
+    if (boton.dataset.roleAction === 'edit') {
+        document.getElementById('customRoleCode').value = rol.codigo;
+        document.getElementById('customRoleName').value = rol.nombre;
+        document.getElementById('saveRoleButton').textContent = 'Guardar cambios';
+        document.getElementById('cancelRoleEdit').classList.remove('d-none');
+        renderOpcionesPermisosRol(rol.permisos);
+        return;
+    }
+    if (!confirm(`¿Eliminar el rol "${rol.nombre}"? No se puede eliminar si está asignado a usuarios.`)) return;
+    try {
+        await service.eliminarRol(rol.codigo);
+        await cargarRoles();
+        await cargarUsuarios();
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function cargarAuditoria() {
+    const lista = document.getElementById('auditList');
+    lista.replaceChildren();
+    try {
+        const registros = await service.listarAuditoria();
+        lista.replaceChildren(...registros.map(registro => {
+            const item = document.createElement('li');
+            item.className = 'list-group-item small';
+            item.innerHTML = `<strong>${esc(registro.accion)}</strong> · ${esc(registro.usuario || 'Sistema')}
+                <div>${esc(registro.detalle)}</div><time class="text-muted">${esc(registro.fecha)}</time>`;
+            return item;
+        }));
+    } catch (err) {
+        lista.textContent = err.message;
     }
 }
 
@@ -360,6 +545,8 @@ function actualizarProductosPorCategoria(preservar = true) {
 }
 
 async function cargarAplicacion() {
+    if (!usuarioActual?.permissions?.includes('ver_inventario')) return;
+    if (!usuarioActual?.permissions?.includes('ver_inventario')) return;
     try {
         await Promise.all([service.cargarDatos(), service.cargarCatalogos()]);
         poblarCatalogos();
@@ -414,7 +601,7 @@ function renderTabla() {
                 <td><code>${esc(item.lote)}</code></td>
                 <td class="fw-bold">${item.cantidad}</td>
                 <td class="small text-muted" title="${esc(item.creadoPor ? `Registrado por ${item.creadoPor}` : '')}">${esc(item.observaciones || '-')}</td>
-                <td class="text-center requiere-escritura">
+                <td class="text-center requiere-movimientos">
                     <button class="btn btn-sm btn-outline-primary me-1 btn-edit" data-id="${item.id}"><i class="fa-solid fa-pen"></i></button>
                     <button class="btn btn-sm btn-outline-danger btn-delete" data-id="${item.id}"><i class="fa-solid fa-trash"></i></button>
                 </td>
@@ -519,7 +706,7 @@ function renderStockCategoria(categoria, sufijo) {
         const nombreEstado = estado === 'aprobado' ? 'Aprobado' : 'Cuarentena';
         const colorEstado = estado === 'aprobado' ? '#198754' : '#fd7e14';
         const colorTextoEstado = estado === 'aprobado' ? '#fff' : '#212529';
-        const controlEstado = ['admin', 'operador'].includes(document.body.dataset.rol)
+        const controlEstado = document.body.dataset.permisos.split(' ').includes('gestionar_lotes')
             ? `<div class="d-flex gap-1 mt-1">
                     <select class="form-select form-select-sm" data-estado-seleccionado aria-label="Cambiar estado de ${esc(s.producto)} lote ${esc(s.lote)}">
                         <option value="cuarentena" ${estado === 'cuarentena' ? 'selected' : ''}>Cuarentena</option>
@@ -689,7 +876,7 @@ function mostrarProductosPosicion(posicion) {
         html += `<div class="alert alert-danger mt-3 mb-0"><strong>⚠ ${esc(datosPosicion.tituloPeligro || 'Posición peligrosa')}</strong></div>`;
     }
 
-    if (['admin', 'operador'].includes(document.body.dataset.rol)) {
+    if (document.body.dataset.permisos.split(' ').includes('gestionar_lotes')) {
         html += `
             <form id="formPeligroPosicion" class="border rounded p-3 mt-3" data-codigo="${esc(posicion)}">
                 <h6 class="fw-bold mb-3">Advertencia de seguridad</h6>

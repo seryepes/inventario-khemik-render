@@ -64,9 +64,14 @@ Reglas que aplica el sistema:
 
 | Rol | Puede |
 |---|---|
-| `admin` | Todo: usuarios, catálogos, importar Excel, restaurar backup, borrar todo, ver auditoría, cambiar estados de lotes y marcar posiciones peligrosas. |
+| `admin` | Todos los permisos, incluido asignar roles privilegiados y borrar todos los movimientos. |
+| `coordinador` | Acceso completo a inventario, catálogos, importaciones, restauración, auditoría y gestión limitada de usuarios. No puede borrar todos los movimientos, asignar roles de administrador/coordinador ni modificar cuentas privilegiadas. Solo un administrador puede asignarle este rol. |
 | `operador` | Ver, registrar, editar y eliminar movimientos y traslados; cambiar estados de lotes y marcar posiciones peligrosas. |
 | `consulta` | Solo ver. |
+
+Desde **Administración**, el administrador puede crear roles personalizados, elegir sus permisos y asignarlos a usuarios nuevos o existentes. Los permisos disponibles cubren consulta del inventario, movimientos, lotes y posiciones, catálogos, importación, restauración, auditoría y gestión limitada de usuarios. `Borrar Todo` no se puede asignar a roles personalizados; queda reservado al administrador. No se puede eliminar un rol personalizado mientras esté asignado.
+
+Las bases de datos existentes se actualizan automáticamente al iniciar la nueva versión para admitir roles personalizados.
 
 ## Uso local (Windows)
 

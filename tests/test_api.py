@@ -63,6 +63,153 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.post("/api/movimientos", self.movimiento(), consulta).status_code, 403)
         self.assertEqual(self.client.delete("/api/movimientos", headers=CSRF).status_code, 200)
 
+    def test_coordinador_tiene_acceso_amplio_pero_no_puede_borrar_todo(self):
+        self.setup_admin()
+        coordinador = self.crear_y_entrar("coordinador", "coordinador")
+
+        self.assertEqual(coordinador.get("/api/auth/users").status_code, 200)
+        self.assertEqual(
+            self.post("/api/catalogos/productos", {"nombre": "Cobre", "categoria": "materia_prima"}, coordinador).status_code,
+            201,
+        )
+        self.assertEqual(self.post("/api/importar", [self.movimiento()], coordinador).status_code, 200)
+        self.assertEqual(self.post("/api/restaurar", [self.movimiento()], coordinador).status_code, 200)
+        self.assertEqual(coordinador.get("/api/auditoria").status_code, 200)
+        self.assertEqual(coordinador.delete("/api/movimientos", headers=CSRF).status_code, 403)
+
+    def test_solo_admin_asigna_roles_privilegiados_y_coordinador_no_altera_cuentas_privilegiadas(self):
+        self.setup_admin()
+        coordinador = self.crear_y_entrar("coordinador", "coordinador")
+        self.assertEqual(
+            self.post(
+                "/api/auth/users",
+                {"username": "nuevo", "password": "clave-segura", "role": "operador"},
+                coordinador,
+            ).status_code,
+            201,
+        )
+        for role in ("admin", "coordinador"):
+            with self.subTest(role=role):
+                response = self.post(
+                    "/api/auth/users",
+                    {"username": f"nuevo-{role}", "password": "clave-segura", "role": role},
+                    coordinador,
+                )
+                self.assertEqual(response.status_code, 403)
+
+        self.assertEqual(
+            coordinador.patch(
+                "/api/auth/users/nuevo", json={"role": "coordinador"}, headers=CSRF,
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            coordinador.patch(
+                "/api/auth/users/admin", json={"activo": False}, headers=CSRF,
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.patch(
+                "/api/auth/users/nuevo", json={"role": "coordinador"}, headers=CSRF,
+            ).status_code,
+            200,
+        )
+
+    def test_admin_crea_rol_personalizado_y_asigna_permisos_sin_borrar_todo(self):
+        self.setup_admin()
+        creado = self.post("/api/auth/roles", {
+            "nombre": "Auditoría de lectura",
+            "permisos": ["ver_inventario", "ver_auditoria"],
+        })
+        self.assertEqual(creado.status_code, 201)
+        codigo = creado.json["codigo"]
+
+        self.assertEqual(
+            self.post("/api/auth/roles", {
+                "nombre": "Rol con borrado",
+                "permisos": ["ver_inventario", "borrar_todo"],
+            }).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.post("/api/auth/users", {
+                "username": "auditor",
+                "password": "clave-segura",
+                "role": codigo,
+            }).status_code,
+            201,
+        )
+        auditor = self.app.test_client()
+        self.assertEqual(
+            self.post("/api/auth/login", {"username": "auditor", "password": "clave-segura"}, auditor).status_code,
+            200,
+        )
+        self.assertEqual(auditor.get("/api/auth/status").json["user"]["roleName"], "Auditoría de lectura")
+        self.assertEqual(auditor.get("/api/movimientos").status_code, 200)
+        self.assertEqual(auditor.get("/api/auditoria").status_code, 200)
+        self.assertEqual(self.post("/api/movimientos", self.movimiento(), auditor).status_code, 403)
+        self.assertEqual(auditor.delete("/api/movimientos", headers=CSRF).status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/auth/roles/{codigo}", headers=CSRF).status_code, 409)
+
+        self.assertEqual(
+            self.client.patch(
+                "/api/auth/users/auditor", json={"role": "consulta"}, headers=CSRF,
+            ).status_code,
+            200,
+        )
+        self.assertEqual(self.client.delete(f"/api/auth/roles/{codigo}", headers=CSRF).status_code, 200)
+
+    def test_solo_admin_puede_configurar_roles_y_se_validan_dependencias(self):
+        self.setup_admin()
+        coordinador = self.crear_y_entrar("coordinador", "coordinador")
+        self.assertEqual(
+            self.post(
+                "/api/auth/roles",
+                {"nombre": "No autorizado", "permisos": ["ver_inventario"]},
+                coordinador,
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.post("/api/auth/roles", {
+                "nombre": "Movimiento sin consulta",
+                "permisos": ["gestionar_movimientos"],
+            }).status_code,
+            400,
+        )
+
+    def test_rol_personalizado_solo_accede_a_los_modulos_seleccionados(self):
+        self.setup_admin()
+        role = self.post("/api/auth/roles", {
+            "nombre": "Gestor de catálogos",
+            "permisos": ["gestionar_catalogos"],
+        }).json
+        self.assertEqual(
+            self.post("/api/auth/users", {
+                "username": "catalogos",
+                "password": "clave-segura",
+                "role": role["codigo"],
+            }).status_code,
+            201,
+        )
+        catalogos = self.app.test_client()
+        self.assertEqual(
+            self.post("/api/auth/login", {"username": "catalogos", "password": "clave-segura"}, catalogos).status_code,
+            200,
+        )
+        self.assertEqual(catalogos.get("/api/catalogos").status_code, 200)
+        self.assertEqual(catalogos.get("/api/movimientos").status_code, 403)
+        self.assertEqual(
+            self.post(
+                "/api/catalogos/productos",
+                {"nombre": "Cobre", "categoria": "materia_prima"},
+                catalogos,
+            ).status_code,
+            201,
+        )
+        self.assertEqual(catalogos.delete("/api/movimientos", headers=CSRF).status_code, 403)
+
     def test_admin_y_operador_pueden_marcar_posicion_peligrosa(self):
         self.setup_admin()
         ruta = "/api/posiciones/PISO%20PLANTA1/peligro"
@@ -203,7 +350,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(reactivado.status_code, 200)
         self.assertTrue(reactivado.json["activo"])
 
-    def test_solo_admin_puede_modificar_productos_del_catalogo(self):
+    def test_operador_no_puede_modificar_productos_del_catalogo(self):
         self.setup_admin()
         operador = self.crear_y_entrar("operador", "operador")
         aluminio = next(
@@ -215,6 +362,12 @@ class ApiTests(unittest.TestCase):
             operador.patch(ruta, json={"nombre": "Nuevo nombre"}, headers=CSRF).status_code, 403,
         )
         self.assertEqual(operador.delete(ruta, headers=CSRF).status_code, 403)
+
+        coordinador = self.crear_y_entrar("coordinador", "coordinador")
+        self.assertEqual(
+            coordinador.patch(ruta, json={"nombre": "Aluminio para coordinador"}, headers=CSRF).status_code,
+            200,
+        )
 
     def test_movimiento_guarda_y_conserva_fecha_hora_de_creacion(self):
         self.setup_admin()

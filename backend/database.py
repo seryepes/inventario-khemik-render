@@ -50,6 +50,56 @@ def crear_engine(url: str) -> Engine:
     return engine
 
 
+def _migrar_roles_personalizados(engine: Engine) -> None:
+    restricciones = inspect(engine).get_check_constraints("usuarios")
+    rol_check = next((item for item in restricciones if item["name"] == "ck_usuario_rol"), None)
+    if rol_check is None:
+        return
+
+    if engine.dialect.name == "sqlite":
+        conexion = engine.raw_connection()
+        try:
+            cursor = conexion.cursor()
+            try:
+                cursor.execute("PRAGMA foreign_keys=OFF")
+                cursor.execute("BEGIN")
+                cursor.execute("""
+                    CREATE TABLE usuarios_nueva (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        username VARCHAR(40) NOT NULL UNIQUE,
+                        password_hash VARCHAR(255) NOT NULL,
+                        rol VARCHAR(20) NOT NULL,
+                        activo BOOLEAN NOT NULL,
+                        intentos_fallidos INTEGER NOT NULL,
+                        bloqueado_hasta DATETIME,
+                        ultimo_acceso DATETIME,
+                        creado_en DATETIME NOT NULL
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO usuarios_nueva
+                    SELECT id, username, password_hash, rol, activo, intentos_fallidos,
+                           bloqueado_hasta, ultimo_acceso, creado_en
+                    FROM usuarios
+                """)
+                cursor.execute("DROP TABLE usuarios")
+                cursor.execute("ALTER TABLE usuarios_nueva RENAME TO usuarios")
+                conexion.commit()
+            except Exception:
+                conexion.rollback()
+                raise
+            finally:
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+        finally:
+            conexion.close()
+    elif engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE usuarios DROP CONSTRAINT ck_usuario_rol"))
+    else:
+        raise RuntimeError(f"No se puede actualizar los roles en {engine.dialect.name}.")
+
+
 def inicializar_base(url: str) -> sessionmaker:
     """Crea las tablas que falten, carga los catálogos iniciales y devuelve la fábrica de sesiones."""
     from . import models  # noqa: F401  registra las tablas en Base.metadata
@@ -57,6 +107,7 @@ def inicializar_base(url: str) -> sessionmaker:
 
     engine = crear_engine(url)
     Base.metadata.create_all(engine)
+    _migrar_roles_personalizados(engine)
     if "categoria" not in {column["name"] for column in inspect(engine).get_columns("productos")}:
         with engine.begin() as connection:
             connection.execute(text(
