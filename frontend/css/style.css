@@ -30,8 +30,24 @@ body {
     box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.25);
 }
 
+.auth-logo {
+    display: block;
+    width: min(100%, 235px);
+    height: auto;
+    margin: 0 auto 1rem;
+}
+
 .navbar-custom {
     background-color: var(--primary-dark);
+}
+
+.navbar-logo {
+    width: 132px;
+    height: 56px;
+    border-radius: 6px;
+    background-color: #fff;
+    object-fit: cover;
+    object-position: center;
 }
 
 .card-stat {
