@@ -3,7 +3,12 @@ import { InventarioService } from './servicio.js?v=8';
 const service = new InventarioService();
 const TOTAL_POSICIONES = 266;
 
-const ROLES = { admin: 'Administrador', operador: 'Operador', consulta: 'Consulta' };
+const ROLES = {
+    superadmin: 'Superadministrador',
+    admin: 'Administrador',
+    operador: 'Operador',
+    consulta: 'Consulta'
+};
 
 // Todo texto que venga de la base se escapa antes de insertarlo como HTML (evita XSS).
 function esc(valor) {
@@ -94,13 +99,13 @@ async function iniciarAutenticacion() {
 function configurarFormularioAcceso(configuracionInicial) {
     const password = document.getElementById('authPassword');
     document.getElementById('authTitle').textContent = configuracionInicial
-        ? 'Crear administrador'
+        ? 'Crear superadministrador'
         : 'Iniciar sesión';
     document.getElementById('authSubtitle').textContent = configuracionInicial
-        ? 'Configura la primera cuenta administradora'
+        ? 'Configura la cuenta con todos los permisos'
         : 'Ingresa para continuar';
     document.getElementById('authSubmit').textContent = configuracionInicial
-        ? 'Crear administrador'
+        ? 'Crear superadministrador'
         : 'Ingresar';
     document.getElementById('passwordHelp').classList.toggle('d-none', !configuracionInicial);
     password.autocomplete = configuracionInicial ? 'new-password' : 'current-password';
@@ -111,7 +116,7 @@ function configurarFormularioAcceso(configuracionInicial) {
 function mostrarAplicacion(user) {
     document.getElementById('authScreen').classList.add('d-none');
     document.getElementById('currentUser').textContent = `${user.username} · ${ROLES[user.role] || user.role}`;
-    document.getElementById('btnUsuarios').classList.toggle('d-none', user.role !== 'admin');
+    document.getElementById('btnUsuarios').classList.toggle('d-none', !['admin', 'superadmin'].includes(user.role));
     // style.css oculta los controles que el rol no puede usar; el backend igual valida cada permiso.
     document.body.dataset.rol = user.role;
 }
@@ -161,17 +166,20 @@ async function cargarUsuarios() {
         users.forEach(user => {
             const item = document.createElement('li');
             item.className = 'list-group-item d-flex justify-content-between align-items-center gap-2';
+            const puedeEditar = document.body.dataset.rol === 'superadmin' || user.role !== 'superadmin';
             item.innerHTML = `
                 <span class="${user.activo ? '' : 'text-decoration-line-through text-muted'}">${esc(user.username)}</span>
                 <span class="d-flex gap-1 align-items-center">
                     <span class="badge bg-secondary">${esc(ROLES[user.role] || user.role)}</span>
-                    <button class="btn btn-sm btn-outline-${user.activo ? 'danger' : 'success'}" data-accion="activo"
-                        data-username="${esc(user.username)}" data-valor="${user.activo ? '0' : '1'}">
-                        ${user.activo ? 'Desactivar' : 'Activar'}
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary" data-accion="password" data-username="${esc(user.username)}">
-                        Clave
-                    </button>
+                    ${puedeEditar ? `
+                        <button class="btn btn-sm btn-outline-${user.activo ? 'danger' : 'success'}" data-accion="activo"
+                            data-username="${esc(user.username)}" data-valor="${user.activo ? '0' : '1'}">
+                            ${user.activo ? 'Desactivar' : 'Activar'}
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" data-accion="password" data-username="${esc(user.username)}">
+                            Clave
+                        </button>
+                    ` : ''}
                 </span>`;
             list.appendChild(item);
         });
@@ -519,7 +527,7 @@ function renderStockCategoria(categoria, sufijo) {
         const nombreEstado = estado === 'aprobado' ? 'Aprobado' : 'Cuarentena';
         const colorEstado = estado === 'aprobado' ? '#198754' : '#fd7e14';
         const colorTextoEstado = estado === 'aprobado' ? '#fff' : '#212529';
-        const controlEstado = ['admin', 'operador'].includes(document.body.dataset.rol)
+        const controlEstado = ['admin', 'superadmin', 'operador'].includes(document.body.dataset.rol)
             ? `<div class="d-flex gap-1 mt-1">
                     <select class="form-select form-select-sm" data-estado-seleccionado aria-label="Cambiar estado de ${esc(s.producto)} lote ${esc(s.lote)}">
                         <option value="cuarentena" ${estado === 'cuarentena' ? 'selected' : ''}>Cuarentena</option>
@@ -689,7 +697,7 @@ function mostrarProductosPosicion(posicion) {
         html += `<div class="alert alert-danger mt-3 mb-0"><strong>⚠ ${esc(datosPosicion.tituloPeligro || 'Posición peligrosa')}</strong></div>`;
     }
 
-    if (['admin', 'operador'].includes(document.body.dataset.rol)) {
+    if (['admin', 'superadmin', 'operador'].includes(document.body.dataset.rol)) {
         html += `
             <form id="formPeligroPosicion" class="border rounded p-3 mt-3" data-codigo="${esc(posicion)}">
                 <h6 class="fw-bold mb-3">Advertencia de seguridad</h6>

@@ -69,7 +69,8 @@ class UsuarioService(ServicioBase):
     def a_dict(usuario: m.Usuario) -> dict[str, Any]:
         ultimo = _utc(usuario.ultimo_acceso)
         return {
-            "id": usuario.id, "username": usuario.username, "role": usuario.rol, "activo": usuario.activo,
+            "id": usuario.id, "username": usuario.username,
+            "role": "superadmin" if usuario.es_superadmin else usuario.rol, "activo": usuario.activo,
             "ultimoAcceso": ultimo.isoformat() if ultimo else None, "huella": huella(usuario.password_hash),
         }
 
@@ -89,9 +90,10 @@ class UsuarioService(ServicioBase):
             if repo.hay_usuarios():
                 return None
             usuario = repo.agregar(m.Usuario(
-                username=nombre, password_hash=generate_password_hash(clave), rol="admin", ultimo_acceso=m.ahora(),
+                username=nombre, password_hash=generate_password_hash(clave),
+                rol="admin", es_superadmin=True, ultimo_acceso=m.ahora(),
             ))
-            repo.registrar_auditoria(usuario.id, "usuario.setup", f"Administrador inicial: {nombre}")
+            repo.registrar_auditoria(usuario.id, "usuario.setup", f"Superadministrador inicial: {nombre}")
             return self.a_dict(usuario)
 
     def autenticar(self, username: Any, password: Any, ip: str = "") -> dict[str, Any]:
@@ -153,14 +155,36 @@ class UsuarioService(ServicioBase):
             repo.registrar_auditoria(actor_id, "usuario.crear", f"{nombre} ({rol})")
             return self.publico(self.a_dict(usuario))
 
-    def actualizar(self, username: str, cambios: dict[str, Any], actor_id: Optional[int]) -> dict[str, Any]:
+    def promover_a_superadministrador(self, username: Any) -> dict[str, Any]:
+        nombre = self.validar_username(username)
+        with self.transaccion() as repo:
+            repo.bloquear_tabla_usuarios()
+            usuario = repo.usuario_por_username(nombre)
+            if usuario is None:
+                raise LookupError(f"No existe la cuenta '{nombre}'.")
+            if usuario.es_superadmin:
+                return self.publico(self.a_dict(usuario))
+            if not usuario.activo:
+                raise ValueError(f"La cuenta '{nombre}' está desactivada; actívala antes de promoverla.")
+            if repo.contar_superadmins():
+                raise ConflictoError("Ya existe una cuenta superadministradora.")
+            usuario.rol = "admin"
+            usuario.es_superadmin = True
+            repo.registrar_auditoria(usuario.id, "usuario.promover_superadmin", f"Superadministrador: {nombre}")
+            return self.publico(self.a_dict(usuario))
+
+    def actualizar(self, username: str, cambios: dict[str, Any], actor_id: Optional[int],
+                   actor_rol: str) -> dict[str, Any]:
         with self.transaccion() as repo:
             usuario = repo.usuario_por_username(username)
             if usuario is None:
                 raise LookupError("El usuario no existe.")
+            if usuario.es_superadmin and actor_rol != "superadmin":
+                raise PermissionError("Solo el superadministrador puede modificar su propia cuenta.")
             detalle = []
             if "role" in cambios:
                 usuario.rol = self.validar_rol(cambios["role"])
+                usuario.es_superadmin = False
                 detalle.append(f"rol={usuario.rol}")
             if "activo" in cambios:
                 usuario.activo = bool(cambios["activo"])
@@ -174,6 +198,8 @@ class UsuarioService(ServicioBase):
             repo.session.flush()
             if repo.contar_admins_activos() == 0:
                 raise ValueError("Debe quedar al menos un administrador activo.")
+            if repo.contar_superadmins_activos() == 0:
+                raise ValueError("Debe quedar al menos un superadministrador activo.")
             repo.registrar_auditoria(actor_id, "usuario.actualizar", f"{usuario.username}: {', '.join(detalle) or 'sin cambios'}")
             return self.publico(self.a_dict(usuario))
 

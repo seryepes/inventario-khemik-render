@@ -64,9 +64,18 @@ Reglas que aplica el sistema:
 
 | Rol | Puede |
 |---|---|
-| `admin` | Todo: usuarios, catálogos, importar Excel, restaurar backup, borrar todo, ver auditoría, cambiar estados de lotes y marcar posiciones peligrosas. |
+| `superadmin` | Todos los permisos, incluida la opción exclusiva de borrar todo el inventario y proteger la cuenta superadministradora. |
+| `admin` | Usuarios y catálogos, importar Excel, restaurar backup, ver auditoría, cambiar estados de lotes y marcar posiciones peligrosas. No puede borrar todo ni modificar la cuenta superadministradora. |
 | `operador` | Ver, registrar, editar y eliminar movimientos y traslados; cambiar estados de lotes y marcar posiciones peligrosas. |
 | `consulta` | Solo ver. |
+
+La primera cuenta creada en una instalación nueva es superadministradora. Para designar a `Gerente1` en una instalación ya existente, ejecuta una sola vez desde el entorno conectado a la base de datos:
+
+```powershell
+python -m scripts.promover_superadministrador Gerente1
+```
+
+En Render, ejecuta el comando desde Shell con el entorno de la aplicación. La operación falla si no encuentra la cuenta o ya existe otra cuenta superadministradora.
 
 ## Uso local (Windows)
 
@@ -78,7 +87,7 @@ python -m unittest discover -s tests -t .
 python app.py
 ```
 
-Abre `http://127.0.0.1:5000`. En el primer inicio se crea la cuenta de administrador. Los datos locales quedan en `instance/khemik.db`.
+Abre `http://127.0.0.1:5000`. En el primer inicio se crea la cuenta de superadministrador. Los datos locales quedan en `instance/khemik.db`.
 
 **Si vienes de la versión anterior**, copia tus datos con:
 

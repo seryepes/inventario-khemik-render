@@ -6,7 +6,7 @@ from flask import Blueprint, current_app, g, jsonify, request, session
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
 
-from .seguridad import ESCRITURA, error, requiere_rol, solicitud_sin_csrf
+from .seguridad import ADMINISTRACION, ESCRITURA, error, requiere_rol, solicitud_sin_csrf
 from .service import ConflictoError, InventarioService
 from .usuarios import CredencialesInvalidas, UsuarioService
 
@@ -70,6 +70,11 @@ def conflicto(exc: ConflictoError):
 @bp.errorhandler(ValueError)
 def dato_invalido(exc: ValueError):
     return error(str(exc), 400)
+
+
+@bp.errorhandler(PermissionError)
+def permiso_denegado(exc: PermissionError):
+    return error(str(exc), 403)
 
 
 @bp.errorhandler(LookupError)
@@ -137,13 +142,13 @@ def auth_logout():
 
 
 @bp.get("/auth/users")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def auth_users():
     return jsonify(usuarios().listar())
 
 
 @bp.post("/auth/users")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def auth_create_user():
     data = cuerpo_json()
     usuario = usuarios().crear(data.get("username"), data.get("password"), data.get("role"), usuario_id())
@@ -151,9 +156,11 @@ def auth_create_user():
 
 
 @bp.patch("/auth/users/<username>")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def auth_update_user(username: str):
-    return jsonify(usuarios().actualizar(username, cuerpo_json(), usuario_id()))
+    return jsonify(usuarios().actualizar(
+        username, cuerpo_json(), usuario_id(), g.usuario["role"],
+    ))
 
 
 # --- Catálogos y auditoría -------------------------------------------------
@@ -164,33 +171,33 @@ def catalogos():
 
 
 @bp.post("/catalogos/productos")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def crear_producto():
     data = cuerpo_json()
     return jsonify(inventario().crear_producto(data.get("nombre"), data.get("categoria"), usuario_id())), 201
 
 
 @bp.patch("/catalogos/productos/<int:producto_id>")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def actualizar_producto(producto_id: int):
     return jsonify(inventario().actualizar_producto(producto_id, cuerpo_json(), usuario_id()))
 
 
 @bp.delete("/catalogos/productos/<int:producto_id>")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def eliminar_producto(producto_id: int):
     return jsonify(inventario().eliminar_producto(producto_id, usuario_id()))
 
 
 @bp.post("/catalogos/presentaciones")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def crear_presentacion():
     data = cuerpo_json()
     return jsonify(inventario().crear_presentacion(data.get("nombre"), data.get("capacidad"), usuario_id())), 201
 
 
 @bp.get("/auditoria")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def auditoria():
     return jsonify(inventario().auditoria(request.args.get("limite", 100, type=int)))
 
@@ -232,7 +239,7 @@ def eliminar_movimiento(id_: int):
 
 
 @bp.delete("/movimientos")
-@requiere_rol("admin")
+@requiere_rol("superadmin")
 def borrar_movimientos():
     return jsonify({"ok": True, "eliminados": inventario().borrar_todo(usuario_id())})
 
@@ -276,7 +283,7 @@ def actualizar_estado_lote():
 
 
 @bp.post("/importar")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def importar():
     data = cuerpo_json(permitir_lista=True)
     registros = data.get("registros") if isinstance(data, dict) else data
@@ -284,7 +291,7 @@ def importar():
 
 
 @bp.post("/restaurar")
-@requiere_rol("admin")
+@requiere_rol(*ADMINISTRACION)
 def restaurar():
     data = cuerpo_json(permitir_lista=True)
     registros = data.get("registros") if isinstance(data, dict) else data

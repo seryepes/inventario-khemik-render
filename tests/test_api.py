@@ -43,7 +43,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/movimientos").status_code, 401)
         response = self.setup_admin()
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json["user"]["role"], "admin")
+        self.assertEqual(response.json["user"]["role"], "superadmin")
         self.assertEqual(self.client.get("/api/movimientos").status_code, 200)
         self.assertEqual(self.post("/api/auth/setup", {"username": "otro", "password": "other-password"}).status_code, 409)
 
@@ -62,6 +62,34 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(consulta.get("/api/movimientos").status_code, 200)
         self.assertEqual(self.post("/api/movimientos", self.movimiento(), consulta).status_code, 403)
         self.assertEqual(self.client.delete("/api/movimientos", headers=CSRF).status_code, 200)
+
+    def test_solo_superadmin_puede_borrar_todo(self):
+        self.setup_admin()
+        self.post("/api/movimientos", self.movimiento())
+        administrador = self.crear_y_entrar("admin2", "admin")
+
+        self.assertEqual(administrador.delete("/api/movimientos", headers=CSRF).status_code, 403)
+        borrado = self.client.delete("/api/movimientos", headers=CSRF)
+        self.assertEqual(borrado.status_code, 200)
+        self.assertEqual(borrado.json["eliminados"], 1)
+
+    def test_administrador_no_puede_modificar_ni_crear_superadministradores(self):
+        self.setup_admin()
+        administrador = self.crear_y_entrar("admin2", "admin")
+        self.assertEqual(administrador.get("/api/auth/users").status_code, 200)
+
+        modificar_superadmin = administrador.patch(
+            "/api/auth/users/admin",
+            json={"password": "otra-clave-segura"},
+            headers=CSRF,
+        )
+        self.assertEqual(modificar_superadmin.status_code, 403)
+        crear_superadmin = self.post(
+            "/api/auth/users",
+            {"username": "admin3", "password": "clave-segura", "role": "superadmin"},
+            administrador,
+        )
+        self.assertEqual(crear_superadmin.status_code, 400)
 
     def test_admin_y_operador_pueden_marcar_posicion_peligrosa(self):
         self.setup_admin()

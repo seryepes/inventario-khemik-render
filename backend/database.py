@@ -77,6 +77,12 @@ def inicializar_base(url: str) -> sessionmaker:
             connection.execute(text(
                 "ALTER TABLE ubicaciones ADD COLUMN titulo_peligro VARCHAR(100)"
             ))
+    columnas_usuario = {column["name"] for column in inspect(engine).get_columns("usuarios")}
+    if "es_superadmin" not in columnas_usuario:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "ALTER TABLE usuarios ADD COLUMN es_superadmin BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
     session_factory = sessionmaker(engine, expire_on_commit=False)
     sembrar_catalogos(session_factory)
     # Con gunicorn --preload la app se carga antes de crear los workers:
