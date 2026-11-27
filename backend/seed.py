@@ -12,8 +12,7 @@ PRODUCTOS_INICIALES = {
     "Magnesio": "producto_terminado",
     "Otro": "materia_prima",
 }
-# nombre -> capacidad máxima por ubicación (None = sin límite)
-PRESENTACIONES_INICIALES = {"125 kg": 5, "200 kg": 4, "Otra": None}
+PRESENTACIONES_INICIALES = ("125 kg", "200 kg", "Otra")
 FILAS = range(1, 45)
 COLUMNAS = ("A", "B", "C", "D", "E", "F")
 
@@ -29,8 +28,8 @@ def sembrar_catalogos(session_factory: sessionmaker) -> None:
                 )
             if session.scalar(select(Presentacion.id).limit(1)) is None:
                 session.add_all(
-                    Presentacion(nombre=nombre, capacidad_por_ubicacion=capacidad)
-                    for nombre, capacidad in PRESENTACIONES_INICIALES.items()
+                    Presentacion(nombre=nombre)
+                    for nombre in PRESENTACIONES_INICIALES
                 )
             if session.scalar(select(Ubicacion.id).limit(1)) is None:
                 session.add_all(

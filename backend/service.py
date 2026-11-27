@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from . import models as m
-from .domain import CAPACIDAD_PISO, POSICIONES_PISO, SIN_UBICAR, Movimiento
+from .domain import POSICIONES_PISO, SIN_UBICAR, Movimiento
 from .repository import InventarioRepository
 
 MAX_REGISTROS_POR_CARGA = 5000
@@ -161,46 +161,13 @@ class InventarioService(ServicioBase):
         if mov.cantidad <= 0:
             raise ValueError("La cantidad debe ser mayor que cero.")
 
-    @staticmethod
-    def _validar_capacidad(repo: InventarioRepository, cantidad: int, presentacion: m.Presentacion,
-                           ubicacion: Optional[m.Ubicacion], excluir_id: Optional[int] = None) -> None:
-        if ubicacion is None:
-            return
-        if ubicacion.codigo in POSICIONES_PISO:
-            capacidad = CAPACIDAD_PISO
-            actual = repo.saldo_total_ubicacion(ubicacion.id, excluir_id)
-        else:
-            capacidad = presentacion.capacidad_por_ubicacion
-            if not capacidad:
-                return
-            actual = repo.saldo_ubicacion(ubicacion.id, presentacion.id, excluir_id)
-        if actual + cantidad > capacidad:
-            raise ValueError(
-                f"La ubicación {ubicacion.codigo} está llena para {presentacion.nombre}. "
-                f"Capacidad máxima: {capacidad} productos; disponibles: {max(0, capacidad - actual)}."
-            )
-
     def _validar_reglas(self, repo: InventarioRepository, mov: Movimiento, producto: m.Producto,
-                        presentacion: m.Presentacion, ubicacion: Optional[m.Ubicacion]) -> None:
+                        presentacion: m.Presentacion) -> None:
         self._validar_basico(mov)
         if mov.mvto != "Ingreso":
             return
         if mov.lote != "-" and repo.lote_tiene_salida(mov.lote, producto.id, presentacion.id, mov.id):
             raise ValueError(f"El lote {mov.lote} ya registró una salida y no puede volver a ingresar.")
-        self._validar_ocupacion(repo, producto, ubicacion, mov.id)
-        self._validar_capacidad(repo, mov.cantidad, presentacion, ubicacion, mov.id)
-
-    @staticmethod
-    def _validar_ocupacion(repo: InventarioRepository, producto: m.Producto,
-                           ubicacion: Optional[m.Ubicacion], excluir_id: Optional[int] = None) -> None:
-        if ubicacion is None:
-            return
-        for nombre, cantidad in repo.productos_con_stock_en_ubicacion(ubicacion.id, excluir_id):
-            if cantidad > 0 and nombre.casefold() != producto.nombre.casefold():
-                raise ValueError(
-                    f"La ubicación {ubicacion.codigo} está ocupada por {nombre}; "
-                    f"no se puede ubicar {producto.nombre} allí."
-                )
 
     @staticmethod
     def _verificar_saldos(repo: InventarioRepository, claves: dict[Clave, str]) -> None:
@@ -240,7 +207,7 @@ class InventarioService(ServicioBase):
         producto, presentacion, ubicacion = self._resolver(
             repo, mov, crear_presentacion_manual=crear_presentacion_manual,
         )
-        self._validar_reglas(repo, mov, producto, presentacion, ubicacion)
+        self._validar_reglas(repo, mov, producto, presentacion)
         nuevo_movimiento = fila is None
         saldo_sin_lote_antes = (
             repo.saldo_producto_lote(producto.id, mov.lote)
@@ -317,8 +284,6 @@ class InventarioService(ServicioBase):
             disponible = repo.saldo_lote(origen.id, producto.id, presentacion.id, mov.lote)
             if mov.cantidad > disponible:
                 raise ValueError(f"Stock insuficiente para trasladar. Disponible en {origen.codigo}: {disponible}.")
-            self._validar_ocupacion(repo, producto, destino)
-            self._validar_capacidad(repo, mov.cantidad, presentacion, destino)
             traslado_id = f"TR-{uuid.uuid4().hex[:12]}"
             observaciones = mov.observaciones or f"Traslado de {origen.codigo} a {destino.codigo}"
             filas = [
@@ -563,7 +528,7 @@ class InventarioService(ServicioBase):
                     for p in repo.listar_productos()
                 ],
                 "presentaciones": [
-                    {"nombre": p.nombre, "capacidad": p.capacidad_por_ubicacion, "activo": p.activo}
+                    {"nombre": p.nombre, "activo": p.activo}
                     for p in repo.listar_presentaciones()
                 ],
                 "ubicaciones": [u.codigo for u in repo.listar_ubicaciones()],
@@ -650,20 +615,14 @@ class InventarioService(ServicioBase):
                 "activo": producto.activo,
             }
 
-    def crear_presentacion(self, nombre: Any, capacidad: Any, usuario_id: Optional[int]) -> dict[str, Any]:
+    def crear_presentacion(self, nombre: Any, usuario_id: Optional[int]) -> dict[str, Any]:
         nombre = self._validar_nombre(nombre, 30)
-        try:
-            capacidad = int(capacidad) if capacidad not in (None, "", 0, "0") else None
-        except (TypeError, ValueError):
-            raise ValueError("La capacidad debe ser un número entero.") from None
-        if capacidad is not None and capacidad <= 0:
-            raise ValueError("La capacidad debe ser mayor que cero o quedar vacía (sin límite).")
         with self.transaccion() as repo:
             if repo.presentacion_por_nombre(nombre):
                 raise ConflictoError(f"La presentación '{nombre}' ya existe.")
-            repo.agregar(m.Presentacion(nombre=nombre, capacidad_por_ubicacion=capacidad))
-            repo.registrar_auditoria(usuario_id, "catalogo.presentacion", f"Presentación creada: {nombre} (capacidad {capacidad or 'sin límite'})")
-        return {"nombre": nombre, "capacidad": capacidad, "activo": True}
+            repo.agregar(m.Presentacion(nombre=nombre))
+            repo.registrar_auditoria(usuario_id, "catalogo.presentacion", f"Presentación creada: {nombre}")
+        return {"nombre": nombre, "activo": True}
 
     # --- Auditoría y ajustes -----------------------------------------------
 

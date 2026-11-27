@@ -226,7 +226,7 @@ def eliminar_producto(producto_id: int):
 @requiere_permiso("gestionar_catalogos")
 def crear_presentacion():
     data = cuerpo_json()
-    return jsonify(inventario().crear_presentacion(data.get("nombre"), data.get("capacidad"), usuario_id())), 201
+    return jsonify(inventario().crear_presentacion(data.get("nombre"), usuario_id())), 201
 
 
 @bp.get("/auditoria")

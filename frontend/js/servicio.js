@@ -49,8 +49,8 @@ export class InventarioService {
         return this.cargarCatalogos();
     }
 
-    async crearPresentacion(nombre, capacidad) {
-        await request('/catalogos/presentaciones', { method: 'POST', body: JSON.stringify({ nombre, capacidad }) });
+    async crearPresentacion(nombre) {
+        await request('/catalogos/presentaciones', { method: 'POST', body: JSON.stringify({ nombre }) });
         return this.cargarCatalogos();
     }
 

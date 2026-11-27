@@ -496,10 +496,7 @@ async function accionProductoCatalogo(event) {
 async function crearPresentacion(event) {
     event.preventDefault();
     try {
-        await service.crearPresentacion(
-            document.getElementById('newPresentationName').value,
-            document.getElementById('newPresentationCapacity').value
-        );
+        await service.crearPresentacion(document.getElementById('newPresentationName').value);
         event.target.reset();
         poblarCatalogos();
         alert('Presentación agregada al catálogo.');
@@ -988,7 +985,7 @@ async function guardarRegistro(e) {
             if (nombre && !service.catalogos.presentaciones.some(
                 presentacion => presentacion.nombre.toLocaleLowerCase() === nombre.toLocaleLowerCase()
             )) {
-                service.catalogos.presentaciones.push({ nombre, capacidad: null, activo: true });
+                service.catalogos.presentaciones.push({ nombre, activo: true });
             }
             poblarCatalogos();
         }

@@ -34,14 +34,9 @@ class Producto(Base):
 
 class Presentacion(Base):
     __tablename__ = "presentaciones"
-    __table_args__ = (
-        CheckConstraint("capacidad_por_ubicacion IS NULL OR capacidad_por_ubicacion > 0", name="ck_presentacion_capacidad"),
-    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(30), unique=True)
-    # Máximo de unidades de esta presentación por ubicación; NULL = sin límite.
-    capacidad_por_ubicacion: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
 

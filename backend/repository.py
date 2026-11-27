@@ -94,35 +94,6 @@ class InventarioRepository:
     def contar_movimientos(self) -> int:
         return self.session.scalar(select(func.count(m.Movimiento.id))) or 0
 
-    def saldo_ubicacion(self, ubicacion_id: int, presentacion_id: int, excluir_id: Optional[int] = None) -> int:
-        query = select(SALDO).where(
-            m.Movimiento.ubicacion_id == ubicacion_id, m.Movimiento.presentacion_id == presentacion_id,
-        )
-        if excluir_id:
-            query = query.where(m.Movimiento.id != excluir_id)
-        return int(self.session.scalar(query) or 0)
-
-    def saldo_total_ubicacion(self, ubicacion_id: int, excluir_id: Optional[int] = None) -> int:
-        query = select(SALDO).where(m.Movimiento.ubicacion_id == ubicacion_id)
-        if excluir_id:
-            query = query.where(m.Movimiento.id != excluir_id)
-        return int(self.session.scalar(query) or 0)
-
-    def productos_con_stock_en_ubicacion(
-        self, ubicacion_id: int, excluir_id: Optional[int] = None,
-    ) -> list[tuple[str, int]]:
-        query = (
-            select(m.Producto.nombre, SALDO)
-            .select_from(m.Movimiento)
-            .join(m.Producto, m.Movimiento.producto_id == m.Producto.id)
-            .where(m.Movimiento.ubicacion_id == ubicacion_id)
-            .group_by(m.Producto.id, m.Producto.nombre)
-            .having(SALDO > 0)
-        )
-        if excluir_id is not None:
-            query = query.where(m.Movimiento.id != excluir_id)
-        return [(nombre, int(cantidad)) for nombre, cantidad in self.session.execute(query)]
-
     def saldo_lote(self, ubicacion_id: Optional[int], producto_id: int, presentacion_id: int, lote: str) -> int:
         ubicacion = (m.Movimiento.ubicacion_id.is_(None) if ubicacion_id is None
                      else m.Movimiento.ubicacion_id == ubicacion_id)

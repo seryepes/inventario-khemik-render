@@ -64,42 +64,30 @@ class InventarioServiceTests(unittest.TestCase):
                 None,
             )
 
-    def test_capacidad_por_posicion(self):
-        self.guardar(cantidad=5)
-        with self.assertRaisesRegex(ValueError, "está llena"):
-            self.guardar(lote="L-2", cantidad=1)
+    def test_ubicacion_permite_varios_productos_y_mas_de_dos_unidades(self):
+        posicion = "1A"
+        self.guardar(posicion=posicion, cantidad=6)
+        self.guardar(posicion=posicion, producto="Magnesio", lote="M-1", cantidad=7)
+        self.guardar(posicion=posicion, producto="Otro", presentacion="Otra", lote="O-1", cantidad=8)
 
-    def test_capacidad_de_piso_es_10000_unidades_sin_importar_presentacion(self):
-        posicion = "PISO PLANTA1"
-        self.guardar(posicion=posicion, cantidad=6000)
-        self.guardar(
-            posicion=posicion, presentacion="200 kg", lote="L-2", cantidad=4000,
-        )
+        stock = [item for item in self.service.stock() if item["posicion"] == posicion]
+        self.assertEqual({item["producto"] for item in stock}, {"Aluminio", "Magnesio", "Otro"})
+        self.assertEqual(sum(item["cantidad"] for item in stock), 21)
 
-        with self.assertRaisesRegex(ValueError, "Capacidad máxima: 10000 productos"):
-            self.guardar(posicion=posicion, presentacion="200 kg", lote="L-3", cantidad=1)
+    def test_posicion_de_piso_no_tiene_limite_total_de_unidades(self):
+        self.guardar(posicion="PISO PLANTA1", cantidad=10001)
+        stock = [item for item in self.service.stock() if item["posicion"] == "PISO PLANTA1"]
+        self.assertEqual(sum(item["cantidad"] for item in stock), 10001)
 
-        posicion_planta2 = "PISO PLANTA2"
-        self.guardar(posicion=posicion_planta2, presentacion="Otra", cantidad=10000)
-        with self.assertRaisesRegex(ValueError, "Capacidad máxima: 10000 productos"):
-            self.guardar(posicion=posicion_planta2, presentacion="Otra", lote="L-4", cantidad=1)
-
-    def test_ubicacion_no_acepta_otro_producto_mientras_tiene_stock(self):
-        posicion = "PISO PLANTA1"
-        self.guardar(posicion=posicion)
-        self.guardar(posicion=posicion, lote="L-2", cantidad=1)
-
-        with self.assertRaisesRegex(ValueError, "está ocupada por Aluminio"):
-            self.guardar(posicion=posicion, producto="Magnesio", lote="M-1")
-
-    def test_traslado_no_permite_destino_ocupado_por_otro_producto(self):
+    def test_traslado_permite_destino_con_otro_producto(self):
         self.guardar(posicion="1A")
         self.guardar(posicion="PISO PLANTA2", producto="Magnesio", lote="M-1")
 
-        with self.assertRaisesRegex(ValueError, "está ocupada por Magnesio"):
-            self.service.guardar_traslado(
-                self.movimiento(posicion="1A", posicionDestino="PISO PLANTA2"), None,
-            )
+        self.service.guardar_traslado(
+            self.movimiento(posicion="1A", posicionDestino="PISO PLANTA2"), None,
+        )
+        stock_destino = [item for item in self.service.stock() if item["posicion"] == "PISO PLANTA2"]
+        self.assertEqual({item["producto"] for item in stock_destino}, {"Aluminio", "Magnesio"})
 
     def test_posiciones_de_piso_quedan_en_catalogo_y_mapa(self):
         catalogo = self.service.catalogos()
@@ -156,10 +144,10 @@ class InventarioServiceTests(unittest.TestCase):
         finally:
             legacy_factory.kw["bind"].dispose()
 
-    def test_editar_ingreso_no_cuenta_doble_en_capacidad(self):
+    def test_editar_ingreso_puede_superar_el_antiguo_limite_de_unidades(self):
         creado = self.guardar(cantidad=5)
-        editado = self.service.guardar_movimiento({**self.movimiento(cantidad=4), "id": creado["id"]}, None)
-        self.assertEqual(editado["cantidad"], 4)
+        editado = self.service.guardar_movimiento({**self.movimiento(cantidad=6), "id": creado["id"]}, None)
+        self.assertEqual(editado["cantidad"], 6)
 
     def test_salida_sin_stock_es_rechazada(self):
         self.guardar(cantidad=2)
