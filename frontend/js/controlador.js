@@ -1,4 +1,4 @@
-import { InventarioService } from './servicio.js?v=9';
+import { InventarioService } from './servicio.js?v=10';
 
 const service = new InventarioService();
 const TOTAL_POSICIONES = 266;
@@ -413,9 +413,11 @@ async function crearProducto(event) {
         };
         if (id) await service.actualizarProducto(id, cambios);
         else await service.crearProducto(cambios.nombre, cambios.categoria);
+        if (usuarioActual?.permissions?.includes('ver_inventario')) await service.cargarDatos();
         resetProductForm();
         poblarCatalogos();
         renderProductosCatalogo();
+        if (usuarioActual?.permissions?.includes('ver_inventario')) actualizarEstadoGeneral();
         alert(id ? 'Producto actualizado.' : 'Producto agregado al catálogo.');
     } catch (err) {
         alert(err.message);
@@ -485,8 +487,10 @@ async function accionProductoCatalogo(event) {
         } else {
             await service.actualizarProducto(producto.id, { activo: true });
         }
+        if (usuarioActual?.permissions?.includes('ver_inventario')) await service.cargarDatos();
         poblarCatalogos();
         renderProductosCatalogo();
+        if (usuarioActual?.permissions?.includes('ver_inventario')) actualizarEstadoGeneral();
     } catch (error) {
         alert(error.message);
     }
@@ -660,19 +664,18 @@ function renderPaginacion(totalPages, totalFiltered) {
 }
 
 function renderEstadisticas() {
-    const ing = service.obtenerEstadisticasIngresos();
+    const stock = service.obtenerEstadisticasStock();
     const mapPos = service.obtenerMapaPosiciones();
     const posOcupadas = Object.values(mapPos).filter(p => p.cantidad > 0).length;
 
-    const sumAlu = ing.Aluminio['125 kg'] + ing.Aluminio['200 kg'] + ing.Aluminio['Otra'];
-    const sumMag = ing.Magnesio['125 kg'] + ing.Magnesio['200 kg'] + ing.Magnesio['Otra'];
-
-    document.getElementById('statAluminio').innerText = `${sumAlu} un.`;
-    document.getElementById('statAluminioDetalle').innerText = `125 kg: ${ing.Aluminio['125 kg']} · 200 kg: ${ing.Aluminio['200 kg']} · Otra: ${ing.Aluminio['Otra']}`;
-    
-    document.getElementById('statMagnesio').innerText = `${sumMag} un.`;
-    document.getElementById('statMagnesioDetalle').innerText = `125 kg: ${ing.Magnesio['125 kg']} · 200 kg: ${ing.Magnesio['200 kg']} · Otra: ${ing.Magnesio['Otra']}`;
-    
+    const detallePresentaciones = resumen => Object.entries(resumen.presentaciones)
+        .map(([presentacion, cantidad]) => `${presentacion}: ${cantidad}`).join(' · ');
+    document.getElementById('statAluminio').innerText = `${stock.aluminio.total} un.`;
+    document.getElementById('statAluminioDetalle').innerText = detallePresentaciones(stock.aluminio);
+    document.getElementById('statMagnesio').innerText = `${stock.magnesio.total} un.`;
+    document.getElementById('statMagnesioDetalle').innerText = detallePresentaciones(stock.magnesio);
+    document.getElementById('statVacunas').innerText = `${stock.vacunas} un.`;
+    document.getElementById('statTerminado').innerText = `${stock.terminado} un.`;
     document.getElementById('statPosiciones').innerText = `${posOcupadas}`;
     document.getElementById('totalCargadosBadge').innerHTML = `<i class="fa-solid fa-circle-check me-1"></i>${service.movimientos.length} Registros`;
 }

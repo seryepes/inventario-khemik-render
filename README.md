@@ -51,6 +51,7 @@ auditoria (quién hizo qué y cuándo)          ajustes (clave/valor)
 Reglas que aplica el sistema:
 
 - Cada posición admite cualquier cantidad de unidades y puede contener varios productos, presentaciones y lotes. La disponibilidad de stock sigue validándose al registrar salidas y traslados.
+- Las tarjetas de hidróxidos, vacunas y productos terminados muestran existencias actuales, independientemente de los filtros del historial. Los hidróxidos reconocen los nombres «Aluminio» y «Magnesio» o sus nombres completos; vacunas reconoce «Vacuna» y «Vacunas». El total de cada hidróxido incluye todas las presentaciones, aunque no se muestra el desglose «Otra».
 - El administrador puede editar nombre y categoría de los productos. Al borrar un producto se desactiva para nuevos movimientos, conservando el historial y permitiendo reactivarlo.
 - Ningún lote puede quedar con saldo negativo, ni al registrar una salida ni al editar o eliminar un movimiento.
 - Un lote que salió de la bodega no puede volver a ingresar (los traslados internos no cuentan como salida).

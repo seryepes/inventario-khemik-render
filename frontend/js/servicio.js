@@ -232,17 +232,35 @@ export class InventarioService {
         return Object.values(stockMap).filter(item => item.cantidad > 0);
     }
 
-    obtenerEstadisticasIngresos() {
-        const ingresos = {
-            Aluminio: { '125 kg': 0, '200 kg': 0, Otra: 0 },
-            Magnesio: { '125 kg': 0, '200 kg': 0, Otra: 0 }
+    obtenerEstadisticasStock() {
+        const estadisticas = {
+            aluminio: { total: 0, presentaciones: { '125 kg': 0, '200 kg': 0 } },
+            magnesio: { total: 0, presentaciones: { '125 kg': 0, '200 kg': 0 } },
+            vacunas: 0,
+            terminado: 0
         };
-        this.movimientos.forEach(item => {
-            if (item.mvto !== 'Ingreso' || !ingresos[item.producto]) return;
-            const pres = item.presentacion.includes('125') ? '125 kg' : item.presentacion.includes('200') ? '200 kg' : 'Otra';
-            ingresos[item.producto][pres] += item.cantidad;
+        const normalizar = valor => valor.toLowerCase().normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ');
+
+        this.obtenerStockConsolidado().forEach(item => {
+            const producto = normalizar(item.producto);
+            const tipo = ['aluminio', 'hidroxido de aluminio'].includes(producto) ? 'aluminio'
+                : ['magnesio', 'hidroxido de magnesio'].includes(producto) ? 'magnesio' : null;
+            if (tipo) {
+                const resumen = estadisticas[tipo];
+                resumen.total += item.cantidad;
+                if (!['otro', 'otra'].includes(normalizar(item.presentacion))) {
+                    const cantidad = Object.hasOwn(resumen.presentaciones, item.presentacion)
+                        ? resumen.presentaciones[item.presentacion] : 0;
+                    Object.defineProperty(resumen.presentaciones, item.presentacion, {
+                        value: cantidad + item.cantidad, writable: true, enumerable: true, configurable: true
+                    });
+                }
+            }
+            if (['vacuna', 'vacunas'].includes(producto)) estadisticas.vacunas += item.cantidad;
+            if (item.categoria === 'producto_terminado') estadisticas.terminado += item.cantidad;
         });
-        return ingresos;
+        return estadisticas;
     }
 
     obtenerMapaPosiciones() {
